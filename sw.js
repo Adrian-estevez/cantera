@@ -1,7 +1,7 @@
 // Service worker de La Cantera: guarda el diseño y el código para que la app
 // arranque rápido aunque haya poca cobertura. Los datos (Supabase) nunca se guardan:
 // siempre se piden frescos.
-const VERSION = "cantera-v1";
+const VERSION = "cantera-v2";
 const SHELL = [
   "/", "/index.html", "/css/styles.css", "/favicon.svg", "/manifest.webmanifest",
   "/js/app.js", "/js/config.js", "/js/store.js", "/js/utils.js", "/js/share.js", "/js/lineup.js", "/js/live.js",
@@ -45,7 +45,7 @@ self.addEventListener("fetch", (e) => {
   if (req.method !== "GET") return;
   const url = new URL(req.url);
   if (url.origin === location.origin) {
-    if (url.pathname.startsWith("/_vercel")) return;
+    if (url.pathname.startsWith("/_vercel") || url.pathname.startsWith("/api/")) return;
     e.respondWith(networkFirst(req));
     return;
   }

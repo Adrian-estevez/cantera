@@ -442,7 +442,7 @@ export function lineupCaption(m, data) {
   const bench = arr.bench.map((r) => pmap.get(r.player_id)).filter(Boolean).map((p) => p.name);
   return [
     `📋 ONCE ${m.category ? m.category.toUpperCase() + " " : ""}| ${home ? `${s.club_name} vs ${m.rival}` : `${m.rival} vs ${s.club_name}`}`,
-    `🗓️ ${fmtDate(m.match_date, true)}${m.kickoff_time ? ` · ${m.kickoff_time} h` : ""}${m.competition ? `\n🏆 ${m.competition}` : ""}`,
+    `🗓️ ${fmtDate(m.match_date, true)}${m.kickoff_time ? ` · ${m.kickoff_time} h` : ""}${m.competition ? `\n🏆 ${m.competition}` : ""}${m.stadium ? `\n📍 ${m.stadium}` : ""}`,
     "",
     `🧱 Sistema: ${formation}`,
     lines.G.length ? `🧤 ${lines.G.join(", ")}` : null,
@@ -652,35 +652,57 @@ function teamName(ctx, name, x, y, maxW) {
 const sides = (m, s) => (m.venue === "Visitante" ? [{ n: m.rival, club: false }, { n: s.club_name, club: true }] : [{ n: s.club_name, club: true }, { n: m.rival, club: false }]);
 
 // Previa: día de partido
-export async function matchdayCard(m, data) {
+export const PREVIA_FRASES = [
+  "¡A por los tres puntos!", "Se viene partidazo", "Todos con la cantera", "El futuro se juega aquí",
+  "Nos vemos en la grada", "Con el escudo por bandera", "A dejarlo todo en el campo", "Orgullo de cantera",
+  "Cada partido es una final", "Que ruede el balón", "La cantera no se rinde", "Juntos somos más",
+  "Hambre, trabajo y fútbol", "A seguir creciendo", "Aquí se forman los de mañana",
+];
+export const randomFrase = (prev) => { let f; do { f = PREVIA_FRASES[Math.floor(Math.random() * PREVIA_FRASES.length)]; } while (f === prev && PREVIA_FRASES.length > 1); return f; };
+
+// Previa del partido (válida para publicar días antes)
+export async function matchdayCard(m, data, frase) {
   await ready();
   const s = data.settings;
   const c = document.createElement("canvas"); c.width = W; c.height = H;
   const ctx = c.getContext("2d");
   base(ctx, s);
   const logo = await loadImg(s.logo_url);
-  header(ctx, s, [m.category, m.competition].filter(Boolean).join(" · ") || "Próximo partido", logo);
+  header(ctx, s, [m.category, m.competition].filter(Boolean).join(" · ") || "Previa", logo);
   const rlogo = await loadImg(m.rival_logo_url);
   ctx.textAlign = "center"; ctx.textBaseline = "top";
-  ctx.fillStyle = s.accent_color; fitText(ctx, "DÍA DE PARTIDO", W - 140, 120);
-  ctx.fillText("DÍA DE PARTIDO", W / 2, 180);
+  ctx.fillStyle = s.accent_color; fitText(ctx, "PRÓXIMO PARTIDO", W - 140, 112);
+  ctx.fillText("PRÓXIMO PARTIDO", W / 2, 168);
+  const f = (frase || randomFrase()).toUpperCase();
+  ctx.fillStyle = "#fff"; fitText(ctx, f, W - 160, 46, 600);
+  ctx.fillText(f, W / 2, 292);
   const [a, b] = sides(m, s);
-  crest(ctx, s, a.club ? logo : rlogo, a.n, 280, 520, 130, a.club);
-  crest(ctx, s, b.club ? logo : rlogo, b.n, W - 280, 520, 130, b.club);
-  ctx.fillStyle = "#fff"; ctx.font = `700 90px ${HEAD}`; ctx.textBaseline = "middle"; ctx.textAlign = "center";
-  ctx.fillText("VS", W / 2, 520);
-  teamName(ctx, a.n, 280, 680, 400);
-  teamName(ctx, b.n, W - 280, 680, 400);
+  crest(ctx, s, a.club ? logo : rlogo, a.n, 280, 500, 120, a.club);
+  crest(ctx, s, b.club ? logo : rlogo, b.n, W - 280, 500, 120, b.club);
+  ctx.fillStyle = "#fff"; ctx.font = `700 84px ${HEAD}`; ctx.textBaseline = "middle"; ctx.textAlign = "center";
+  ctx.fillText("VS", W / 2, 500);
+  teamName(ctx, a.n, 280, 645, 400);
+  teamName(ctx, b.n, W - 280, 645, 400);
   // datos
-  ctx.fillStyle = "rgba(0,0,0,.3)"; roundRect(ctx, 60, 800, W - 120, 330, 26); ctx.fill();
+  ctx.fillStyle = "rgba(0,0,0,.3)"; roundRect(ctx, 60, 760, W - 120, 370, 26); ctx.fill();
   ctx.textAlign = "center"; ctx.textBaseline = "top";
-  ctx.fillStyle = s.accent_color; ctx.font = `700 150px ${HEAD}`;
-  ctx.fillText(m.kickoff_time || "HOY", W / 2, 818);
-  ctx.fillStyle = "#fff"; ctx.font = `600 40px ${BODY}`;
   const d = fmtDate(m.match_date, true);
-  ctx.fillText(d.charAt(0).toUpperCase() + d.slice(1), W / 2, 990);
-  ctx.fillStyle = "rgba(255,255,255,.75)"; ctx.font = `500 32px ${BODY}`;
-  ctx.fillText(m.venue === "Local" ? "Jugamos en casa" : m.venue === "Visitante" ? "Jugamos fuera" : "Campo neutral", W / 2, 1050);
+  const dCap = d.charAt(0).toUpperCase() + d.slice(1);
+  if (m.kickoff_time) {
+    ctx.fillStyle = s.accent_color; ctx.font = `700 140px ${HEAD}`;
+    ctx.fillText(m.kickoff_time, W / 2, 776);
+    ctx.fillStyle = "#fff"; fitText(ctx, dCap, W - 180, 40, 600, BODY);
+    ctx.fillText(dCap, W / 2, 936);
+  } else {
+    ctx.fillStyle = s.accent_color; fitText(ctx, dCap.toUpperCase(), W - 180, 70);
+    ctx.fillText(dCap.toUpperCase(), W / 2, 830);
+  }
+  const place = m.stadium ? m.stadium : m.venue === "Local" ? (s.home_stadium || "En casa") : m.venue === "Visitante" ? "Fuera de casa" : "Campo neutral";
+  const tag = m.venue === "Local" ? "Local" : m.venue === "Visitante" ? "Visitante" : "Neutral";
+  ctx.fillStyle = "rgba(255,255,255,.9)"; fitText(ctx, place, W - 200, 36, 600, BODY);
+  ctx.fillText(place, W / 2, 1006);
+  ctx.fillStyle = "rgba(255,255,255,.6)"; ctx.font = `500 28px ${BODY}`;
+  ctx.fillText(tag, W / 2, 1060);
   footer(ctx, s);
   return c;
 }

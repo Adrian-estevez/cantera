@@ -1,7 +1,7 @@
 import { createStore } from "./store.js";
 import { HANDLE } from "./config.js";
 import { esc, age, fmtDate, fmtRating, ratingClass, result, initials, num, today, resizeImage, playerStats, periodStats } from "./utils.js";
-import { playerCard, matchCard, lineupCard, matchdayCard, scoreCard, goalCard, mvpCard, rankingCard, idealCard, compareCard, toStory, canvasToBlob, playerCaption, matchCaption, lineupCaption } from "./share.js";
+import { randomFrase, playerCard, matchCard, lineupCard, matchdayCard, scoreCard, goalCard, mvpCard, rankingCard, idealCard, compareCard, toStory, canvasToBlob, playerCaption, matchCaption, lineupCaption } from "./share.js";
 import { FORMATIONS, FORMATION_NAMES, arrange, pitchHTML, defaultFormation, groupOf, detailLabels } from "./lineup.js";
 import { isLive, clockLabel, clockMinute, defaultHalf, eventsOf, currentXI, computeMinutes, scoreAt, ICONS, eventText, eventPost } from "./live.js";
 
@@ -129,6 +129,7 @@ async function showCard(fmt) {
   modal(`<h2>Imagen lista</h2>
     <div class="seg fmt" role="tablist" aria-label="Formato"><button role="tab" class="${fmt === "post" ? "on" : ""}" data-act="card-fmt" data-v="post">Post 4:5</button><button role="tab" class="${fmt === "story" ? "on" : ""}" data-act="card-fmt" data-v="story">Story 9:16</button></div>
     <img class="preview ${fmt}" src="${url}" alt="Vista previa de la tarjeta">
+    ${c.regen ? `<p class="regen"><button class="btn small ghost" data-act="card-regen">Cambiar la frase</button></p>` : ""}
     <div class="actions"><button class="btn ghost" data-act="close">Cerrar</button><a class="btn" href="${url}" download="${esc(name)}">Descargar PNG</a></div>`, true);
 }
 
@@ -239,6 +240,7 @@ function viewHome() {
       ${best.map((x, i) => rankRow(x.p, i, fmtRating(x.st.avg), `${x.st.pj} PJ`, ratingClass(x.st.avg))).join("") || `<p class="empty">Faltan valoraciones.</p>`}
     </div>
   </section>
+  ${(d.standings || []).length ? `<section class="band tight"><div class="panel home-st" id="home-st" hidden></div></section>` : ""}
   ${featured.length ? `<section class="band alt"><div class="panel-h"><h2>Jugadores a seguir</h2><a href="#/jugadores">Toda la plantilla</a></div>
     <div class="cards">${featured.map(playerCardHTML).join("")}</div></section>` : ""}`;
 }
@@ -426,8 +428,8 @@ function viewMatch(id) {
   const foot = live
     ? `<span class="livebadge"><i></i>En directo</span> <b class="clock" data-clock="${esc(id)}">${esc(clockLabel(m))}</b> · ${esc(m.venue)}`
     : pend
-    ? `<span class="res res-P">Próximo partido</span> ${esc(fmtDate(m.match_date, true))}${m.kickoff_time ? ` · ${esc(m.kickoff_time)} h` : ""} · ${esc(m.venue)}`
-    : `<span class="res res-${r}">${RES_LABEL[r]}</span> ${esc(fmtDate(m.match_date, true))} · ${esc(m.venue)}`;
+    ? `<span class="res res-P">Próximo partido</span> ${esc(fmtDate(m.match_date, true))}${m.kickoff_time ? ` · ${esc(m.kickoff_time)} h` : ""} · ${esc(m.stadium || m.venue)}`
+    : `<span class="res res-${r}">${RES_LABEL[r]}</span> ${esc(fmtDate(m.match_date, true))} · ${esc(m.stadium || m.venue)}`;
   const rated = arr.rows.filter((x) => x.rating != null && x.rating !== "");
   const avg = rated.length ? rated.reduce((s, x) => s + Number(x.rating), 0) / rated.length : null;
   return `
@@ -561,6 +563,7 @@ function viewSettings() {
     <label>Nombre del club<input name="club_name" value="${esc(s.club_name)}" required></label>
     <label>Título de la web<input name="site_title" value="${esc(s.site_title)}" required></label>
     <label>Temporada<input name="season" value="${esc(s.season)}"></label>
+    <label>Estadio de casa <small>(se pone solo en los partidos como local)</small><input name="home_stadium" value="${esc(s.home_stadium || "")}"></label>
     <div class="frow"><label>Color principal<input type="color" name="primary_color" value="${esc(s.primary_color)}"></label>
     <label>Color de acento<input type="color" name="accent_color" value="${esc(s.accent_color)}"></label></div>
     <label>Categorías <small>(separadas por comas)</small><input name="categories" value="${esc(s.categories.join(", "))}"></label>
@@ -615,7 +618,9 @@ function matchForm(m = {}) {
       <p class="muted small" id="rival-hint">${m.rival_logo_url ? "" : "Opcional. Si ya jugasteis contra este rival, se usa su escudo automáticamente."}</p></div></div>
     <div class="frow"><label class="grow">Rival *<input name="rival" list="rivals-dl" autocomplete="off" value="${esc(m.rival || "")}" required></label>
     <datalist id="rivals-dl">${[...new Set(S.data.matches.map((x) => x.rival).filter(Boolean))].sort().map((r) => `<option value="${esc(r)}">`).join("")}</datalist>
-    <label>Campo<select name="venue">${opts(["Local", "Visitante", "Neutral"], m.venue || "Local")}</select></label></div>
+    <label>Campo<select name="venue" id="mf-venue">${opts(["Local", "Visitante", "Neutral"], m.venue || "Local")}</select></label></div>
+    <label>Estadio<input name="stadium" id="mf-stadium" value="${esc(m.id ? m.stadium || "" : (m.venue || "Local") === "Local" ? S.data.settings.home_stadium || "" : "")}" placeholder="Nombre del campo o estadio" list="stadiums-dl"></label>
+    <datalist id="stadiums-dl">${[...new Set([S.data.settings.home_stadium, ...S.data.matches.map((x) => x.stadium)].filter(Boolean))].map((x) => `<option value="${esc(x)}">`).join("")}</datalist>
     <div class="frow"><label>Fecha *<input type="date" name="match_date" value="${esc(m.match_date || today())}" required></label>
     <label class="w-s">Hora<input type="time" name="kickoff_time" value="${esc(m.kickoff_time || "")}"></label>
     <label>Categoría<select name="category" id="mf-cat">${opts(cats.includes(cat) || !cat ? cats : [...cats, cat], cat)}</select></label></div>
@@ -629,6 +634,16 @@ function matchForm(m = {}) {
     <div class="actions"><button type="button" class="btn ghost" data-act="close">Cancelar</button><button class="btn">${isNew ? "Crear y montar el once" : "Guardar"}</button></div>
   </form>`, true);
   if (isNew) $("#mf-cat").addEventListener("change", (e) => { $("#mf-formation").value = defaultFormation(e.target.value); });
+  // estadio automático: en casa el de Ajustes; fuera, el último usado contra ese rival
+  const autoStadium = () => {
+    const st = $("#mf-stadium"), v = $("#mf-venue").value, home = S.data.settings.home_stadium || "";
+    if (st.dataset.touched) return;
+    if (v === "Local") st.value = home;
+    else { const r = normTxt($("#matchform [name=rival]").value); const prev = S.data.matches.filter((x) => x.stadium && x.venue !== "Local" && normTxt(x.rival) === r).sort((a, b) => (b.match_date || "").localeCompare(a.match_date || ""))[0]; st.value = prev ? prev.stadium : ""; }
+  };
+  $("#mf-stadium").addEventListener("input", (e) => { e.target.dataset.touched = "1"; });
+  $("#mf-venue").addEventListener("change", () => { if ($("#mf-stadium").value === (S.data.settings.home_stadium || "") ) delete $("#mf-stadium").dataset.touched; autoStadium(); });
+  $("#matchform [name=rival]").addEventListener("change", autoStadium);
   $("#matchform [name=rival]").addEventListener("input", (e) => {
     const f = $("#matchform [name=rival_logo]"); if (f.files.length || m.rival_logo_url) return;
     const src = safeImg(rivalLogoFor(e.target.value));
@@ -699,6 +714,185 @@ function rateModal(mid, pid) {
   </form>`);
 }
 
+
+// ------------------------------------------------------------ clasificación
+const STCACHE = new Map();
+const normTxt = (x) => String(x || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
+async function fetchStandings(league, season, force = false) {
+  const k = `${league}-${season}`, c = STCACHE.get(k);
+  if (!force && c && Date.now() - c.t < 10 * 60e3) return c.data;
+  let r, j;
+  try { r = await fetch(`/api/football?type=standings&league=${encodeURIComponent(league)}&season=${encodeURIComponent(season)}`); j = await r.json(); }
+  catch { throw new Error("La clasificación automática no está disponible. Comprueba que la carpeta «api» está subida a GitHub."); }
+  if (!r.ok) throw new Error(j.error === "no_key" ? "Falta la clave de API-Football en Vercel (variable APIFOOTBALL_KEY)." : j.message || "No se pudo cargar la clasificación.");
+  STCACHE.set(k, { t: Date.now(), data: j });
+  return j;
+}
+async function searchLeagues(q) {
+  let r, j;
+  try { r = await fetch(`/api/football?type=leagues&search=${encodeURIComponent(q)}`); j = await r.json(); }
+  catch { throw new Error("La búsqueda automática no está disponible. Comprueba que la carpeta «api» está subida a GitHub."); }
+  if (!r.ok) throw new Error(j.error === "no_key" ? "Falta la clave de API-Football en Vercel (variable APIFOOTBALL_KEY)." : j.message || "No se pudo buscar.");
+  return j.leagues || [];
+}
+function manualTable(rows) {
+  return (rows || []).filter((r) => r.team).map((r) => {
+    const n = (k) => Math.max(0, Number(r[k]) || 0);
+    const g = n("g"), e = n("e"), p = n("p");
+    return { team: r.team, pj: n("pj") || g + e + p, g, e, p, gf: n("gf"), gc: n("gc"), gd: n("gf") - n("gc"), pts: 3 * g + e };
+  }).sort((a, b) => b.pts - a.pts || b.gd - a.gd || b.gf - a.gf || a.team.localeCompare(b.team)).map((r, i) => ({ ...r, rank: i + 1 }));
+}
+function isOurs(name, cfg) {
+  if (cfg && cfg.team_name) return name === cfg.team_name;
+  const c = normTxt(S.data.settings.club_name);
+  return !!c && normTxt(name).includes(c);
+}
+function standingsTable(rows, cfg, compact = false) {
+  if (!rows.length) return `<p class="empty">La clasificación está vacía.</p>`;
+  const zone = (d) => (/promot|ascen|champ|play|campe/i.test(d || "") ? "z-up" : /releg|desc/i.test(d || "") ? "z-down" : "");
+  const form = (f) => String(f || "").slice(-5).split("").map((c) => `<i class="fm fm-${c}" title="${{ W: "Victoria", D: "Empate", L: "Derrota" }[c] || ""}">${{ W: "V", D: "E", L: "D" }[c] || ""}</i>`).join("");
+  const hasForm = !compact && rows.some((r) => r.form);
+  return `<div class="scroll"><table class="stand${compact ? " compact" : ""}"><thead><tr><th class="n">#</th><th>Equipo</th><th class="n">PJ</th>${compact ? "" : `<th class="n">G</th><th class="n">E</th><th class="n">P</th><th class="n c-gf">GF</th><th class="n c-gf">GC</th>`}<th class="n">DG</th><th class="n">Pts</th>${hasForm ? `<th class="c-form">Racha</th>` : ""}</tr></thead><tbody>
+    ${rows.map((r) => `<tr class="${isOurs(r.team, cfg) ? "ours" : ""} ${zone(r.desc)}"><td class="n rk">${r.rank}</td>
+      <td><span class="st-team">${r.logo && /^https:\/\//.test(r.logo) ? `<img src="${esc(r.logo)}" alt="" loading="lazy">` : ""}<span>${esc(r.team)}</span></span></td>
+      <td class="n">${r.pj}</td>${compact ? "" : `<td class="n">${r.g}</td><td class="n">${r.e}</td><td class="n">${r.p}</td><td class="n c-gf">${r.gf}</td><td class="n c-gf">${r.gc}</td>`}
+      <td class="n">${r.gd > 0 ? "+" : ""}${r.gd}</td><td class="n pts">${r.pts}</td>${hasForm ? `<td class="c-form">${form(r.form)}</td>` : ""}</tr>`).join("")}
+    </tbody></table></div>`;
+}
+async function rowsFor(cfg, force) {
+  if (cfg.source === "manual") return { rows: manualTable(cfg.rows), meta: `Actualizada a mano el ${fmtDate(String(cfg.updated_at || "").slice(0, 10))}` };
+  const j = await fetchStandings(cfg.league_id, cfg.season, force);
+  const g = j.groups[cfg.group_index] || j.groups[0] || [];
+  const t = new Date(j.fetched_at || Date.now());
+  return { rows: g, group: g[0]?.group, meta: `Se actualiza sola · datos de API-Football · consultado a las ${t.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}` };
+}
+
+function viewStandings() {
+  const list = S.data.standings || [];
+  const cats = list.map((x) => x.category);
+  const cur = cats.includes(S.stcat) ? S.stcat : cats[0];
+  S.stcat = cur;
+  return `<section class="band page-h"><div class="row-between"><h1>Clasificación</h1>${isAdmin() ? `<button class="btn" data-act="st-config" data-id="${esc(cur || "")}">Configurar</button>` : ""}</div>
+    ${cats.length > 1 ? `<div class="chips">${cats.map((c) => `<button class="chip ${c === cur ? "on" : ""}" data-act="st-cat" data-v="${esc(c)}">${esc(c)}</button>`).join("")}</div>` : ""}</section>
+  <section class="band tight"><div class="panel" id="st-box">${cur ? `<p class="muted">Cargando clasificación…</p>` : `<p class="empty">Todavía no hay ninguna clasificación configurada.</p>${isAdmin() ? `<button class="btn" data-act="st-config" data-id="">Configurar la primera</button>` : ""}`}</div></section>`;
+}
+async function loadStandingsBox() {
+  const box = $("#st-box"), cfg = (S.data.standings || []).find((x) => x.category === S.stcat);
+  if (!box || !cfg) return;
+  try {
+    const { rows, meta, group } = await rowsFor(cfg);
+    if (!$("#st-box")) return;
+    box.innerHTML = `<div class="st-head">${cfg.league_logo && /^https:\/\//.test(cfg.league_logo) ? `<img src="${esc(cfg.league_logo)}" alt="">` : ""}<div><h2>${esc(cfg.league_name || cfg.category)}</h2><p class="muted small">${esc([cfg.category, group, cfg.season ? `Temporada ${cfg.season}/${String(cfg.season + 1).slice(2)}` : null].filter(Boolean).join(" · "))}</p></div></div>
+      ${standingsTable(rows, cfg)}
+      <p class="muted small st-meta">${esc(meta)}</p>
+      ${rows.some((r) => r.desc) ? `<p class="st-legend"><span class="lgi"><span class="lg-up"></span> Ascenso / fase final</span><span class="lgi"><span class="lg-down"></span> Descenso</span></p>` : ""}`;
+  } catch (e) {
+    box.innerHTML = `<h2>${esc(cfg.league_name || cfg.category)}</h2><p class="err">${isAdmin() ? esc(e.message) : "La clasificación no está disponible ahora mismo. Vuelve a intentarlo en un rato."}</p>`;
+  }
+}
+async function loadHomeStanding() {
+  const box = $("#home-st"); if (!box) return;
+  const cfg = (S.data.standings || [])[0]; if (!cfg) return;
+  try {
+    const { rows } = await rowsFor(cfg);
+    const i = Math.max(0, rows.findIndex((r) => isOurs(r.team, cfg)));
+    const from = Math.max(0, Math.min(i - 2, rows.length - 5));
+    const me = rows[i];
+    if (!$("#home-st")) return;
+    box.innerHTML = `<div class="panel-h"><h2>Clasificación</h2><a href="#/clasificacion">Ver completa</a></div>
+      ${me && isOurs(me.team, cfg) ? `<p class="st-pos"><b>${me.rank}º</b> con <b>${me.pts}</b> puntos <span class="muted small">· ${esc(cfg.category)}</span></p>` : ""}
+      ${standingsTable(rows.slice(from, from + 5), cfg, true)}`;
+    box.hidden = false;
+  } catch { box.hidden = true; }
+}
+
+// ---- configuración (admin)
+function stConfig(cat) {
+  const cats = S.data.settings.categories;
+  const c = cat || cats[0];
+  const cfg = (S.data.standings || []).find((x) => x.category === c);
+  S.stEdit = cfg ? structuredClone(cfg) : { category: c, source: "api", rows: [], group_index: 0 };
+  S.stLeagues = S.stLeagues || {};
+  renderStConfig();
+}
+function renderStConfig() {
+  const c = S.stEdit, exists = (S.data.standings || []).some((x) => x.category === c.category);
+  const cats = [...new Set([...S.data.settings.categories, ...(S.data.standings || []).map((x) => x.category)])];
+  const manualRows = (c.rows && c.rows.length ? c.rows : [{}, {}, {}]);
+  const teamNames = manualTable(c.rows).map((r) => r.team);
+  modal(`<h2>Configurar clasificación</h2>
+    <div class="form">
+      <label>Categoría<select id="stc-cat">${cats.map((x) => `<option ${x === c.category ? "selected" : ""}>${esc(x)}</option>`).join("")}</select></label>
+      <div class="seg" role="tablist"><button class="${c.source === "api" ? "on" : ""}" data-act="stc-src" data-v="api">Automática</button><button class="${c.source === "manual" ? "on" : ""}" data-act="stc-src" data-v="manual">Manual</button></div>
+      ${c.source === "api" ? `
+        <p class="muted small">Busca la liga de tu equipo. Solo aparecen ligas de España que tenga API-Football. Si la tuya no sale, usa el modo manual.</p>
+        <div class="frow"><input id="stc-q" placeholder="Ej.: Division de Honor Juvenil, Tercera, Liga Nacional" value="${esc(S.stQ || "")}"><button type="button" class="btn ghost" data-act="stc-search">Buscar</button></div>
+        <div id="stc-res" class="stc-res">${c.league_id ? `<p class="small">Liga elegida: <b>${esc(c.league_name || "")}</b></p>` : ""}</div>
+        <div id="stc-sel"></div>`
+      : `
+        <p class="muted small">Escribe cada equipo con sus partidos. Los puntos (3 por victoria y 1 por empate), la diferencia de goles y el orden se calculan solos.</p>
+        <div class="scroll"><table class="stm"><thead><tr><th>Equipo</th><th>PJ</th><th>G</th><th>E</th><th>P</th><th>GF</th><th>GC</th><th></th></tr></thead><tbody id="stm-body">
+          ${manualRows.map((r) => `<tr class="stm-row"><td><input name="team" value="${esc(r.team || "")}" placeholder="Nombre del equipo"></td>${["pj", "g", "e", "p", "gf", "gc"].map((k) => `<td><input name="${k}" type="number" min="0" inputmode="numeric" value="${esc(r[k] ?? "")}"></td>`).join("")}<td><button type="button" class="x" data-act="stm-del" aria-label="Quitar equipo">×</button></td></tr>`).join("")}
+        </tbody></table></div>
+        <div class="frow"><button type="button" class="btn ghost small" data-act="stm-add">+ Añadir equipo</button></div>
+        <details class="stm-paste"><summary>Pegar la tabla desde Excel o desde la web de la federación</summary>
+          <p class="muted small">Una fila por equipo con el nombre y sus números. Detecto el orden habitual (PJ, G, E, P, GF, GC). Revisa el resultado antes de guardar.</p>
+          <textarea id="stc-paste" rows="5" placeholder="1  CD Ejemplo  12  8  2  2  25  10  26"></textarea>
+          <button type="button" class="btn ghost small" data-act="stc-paste">Importar filas</button></details>
+        <label>Tu equipo en la tabla<select id="stc-team"><option value="">— Detectar por el nombre del club —</option>${teamNames.map((t) => `<option ${t === c.team_name ? "selected" : ""}>${esc(t)}</option>`).join("")}</select></label>`}
+    </div>
+    <div class="actions">${exists ? `<button class="btn ghost danger-t" data-act="stc-del">Quitar esta clasificación</button>` : ""}<button class="btn ghost" data-act="close">Cancelar</button><button class="btn" data-act="stc-save">Guardar</button></div>`, true);
+  $("#stc-cat").addEventListener("change", (e) => { collectManual(); stConfig(e.target.value); });
+  if (c.source === "api" && c.league_id) renderStSel();
+}
+function collectManual() {
+  const c = S.stEdit; if (!c || c.source !== "manual" || !$("#stm-body")) return;
+  c.rows = [...document.querySelectorAll("#stm-body .stm-row")].map((tr) => {
+    const o = {}; tr.querySelectorAll("input").forEach((i) => (o[i.name] = i.name === "team" ? i.value.trim() : i.value === "" ? "" : Number(i.value)));
+    return o;
+  }).filter((r) => r.team || ["pj", "g", "e", "p", "gf", "gc"].some((k) => r[k] !== ""));
+  const t = $("#stc-team"); if (t) c.team_name = t.value || null;
+}
+function parsePasted(text) {
+  return text.split(/\r?\n/).map((line) => {
+    const l = line.replace(/\t/g, " ").trim(); if (!l) return null;
+    const m = l.match(/^(\d+[.ºª]?\s+)?(.*?[^\d\s.,-][^\d]*?)\s+((?:-?\d+\s*)+)$/);
+    if (!m) return null;
+    let n = m[3].trim().split(/\s+/).map(Number);
+    if (n.length >= 7) {
+      if (n[0] === 3 * n[2] + n[3]) n = n.slice(1);           // Pts PJ G E P GF GC
+      else if (n[6] === 3 * n[1] + n[2]) n = n.slice(0, 6);   // PJ G E P GF GC Pts
+    }
+    if (n.length < 6) return null;
+    const [pj, g, e, p, gf, gc] = n;
+    return { team: m[2].trim(), pj, g, e, p, gf, gc };
+  }).filter(Boolean);
+}
+async function renderStSel(force) {
+  const c = S.stEdit, box = $("#stc-sel"); if (!box) return;
+  const L = S.stLeagues[c.league_id];
+  const seasons = L ? L.seasons.slice().sort((a, b) => b.year - a.year) : (c.season ? [{ year: c.season, standings: true }] : []);
+  box.innerHTML = `<p class="muted small">Cargando…</p>`;
+  try {
+    const j = await fetchStandings(c.league_id, c.season, force);
+    const groups = j.groups || [];
+    if (!groups.length) throw new Error("Esta liga no tiene clasificación disponible para esa temporada.");
+    if (c.group_index >= groups.length) c.group_index = 0;
+    const rows = groups[c.group_index];
+    if (!c.team_name) { const hit = rows.find((r) => isOurs(r.team, {})); if (hit) c.team_name = hit.team; }
+    box.innerHTML = `<div class="frow">
+      <label>Temporada<select id="stc-season">${seasons.map((s) => `<option value="${s.year}" ${s.year === c.season ? "selected" : ""}>${s.year}/${String(s.year + 1).slice(2)}${s.current ? " (actual)" : ""}${s.standings ? "" : " · sin tabla"}</option>`).join("")}</select></label>
+      ${groups.length > 1 ? `<label>Grupo<select id="stc-group">${groups.map((g, i) => `<option value="${i}" ${i === c.group_index ? "selected" : ""}>${esc(g[0]?.group || `Grupo ${i + 1}`)}</option>`).join("")}</select></label>` : ""}
+      <label>Tu equipo<select id="stc-team-api">${rows.map((r) => `<option ${r.team === c.team_name ? "selected" : ""}>${esc(r.team)}</option>`).join("")}</select></label></div>
+      <p class="muted small">Vista previa (${rows.length} equipos):</p>${standingsTable(rows.slice(0, 6), c, true)}`;
+  } catch (e) {
+    box.innerHTML = `${seasons.length ? `<label>Temporada<select id="stc-season">${seasons.map((s) => `<option value="${s.year}" ${s.year === c.season ? "selected" : ""}>${s.year}/${String(s.year + 1).slice(2)}${s.current ? " (actual)" : ""}</option>`).join("")}</select></label>` : ""}
+      <p class="err">${esc(e.message)}</p>${/plan|access|season/i.test(e.message) ? `<p class="muted small">Tu plan de API-Football no incluye esa temporada. Puedes probar otra temporada, subir de plan en API-Football o usar el modo manual.</p>` : ""}`;
+  }
+  $("#stc-season")?.addEventListener("change", (e) => { c.season = Number(e.target.value); c.group_index = 0; c.team_name = null; renderStSel(); });
+  $("#stc-group")?.addEventListener("change", (e) => { c.group_index = Number(e.target.value); c.team_name = null; renderStSel(); });
+  $("#stc-team-api")?.addEventListener("change", (e) => { c.team_name = e.target.value; });
+}
 
 // ------------------------------------------------------------ instalar como app
 const isStandalone = () => window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
@@ -957,7 +1151,13 @@ function cardMenu(mid) {
 }
 async function makeMatchCard(mid, kind, evId) {
   const m = match(mid), evs = eventsOf(S.data, mid), f = `${m.match_date}-${slug(m.rival)}`;
-  if (kind === "previa") return downloadCanvas(await matchdayCard(m, S.data), `${f}-previa.png`);
+  if (kind === "previa") {
+    const frase = randomFrase(S.lastFrase); S.lastFrase = frase;
+    await downloadCanvas(await matchdayCard(m, S.data, frase), `${f}-previa.png`);
+    S.cardCur.regen = { mid, kind: "previa" };
+    showCard("post");
+    return;
+  }
   if (kind === "once" || kind === "notas") {
     const mm = kind === "once" ? { ...m, goals_for: null, goals_against: null } : m;
     const data = kind === "once" ? { ...S.data, matchPlayers: S.data.matchPlayers.map((r) => (r.match_id === mid ? { ...r, rating: null, goals: 0 } : r)) } : S.data;
@@ -1150,7 +1350,7 @@ async function run(fn, okMsg) {
     return true;
   } catch (e) {
     console.error(e);
-    const msg = /kickoff_time|formation|'slot'|slot column|logo_url|rival_logo_url|base_(pj|goals|assists|yellow|red)|match_events|live_status|live_started_at|half_minutes/i.test(e.message || "") ? "Falta ejecutar en Supabase el SQL de actualización (mira las instrucciones)" : e.message;
+    const msg = /kickoff_time|formation|'slot'|slot column|logo_url|rival_logo_url|standings|stadium|home_stadium|base_(pj|goals|assists|yellow|red)|match_events|live_status|live_started_at|half_minutes/i.test(e.message || "") ? "Falta ejecutar en Supabase el SQL de actualización (mira las instrucciones)" : e.message;
     toast(msg || "Algo ha fallado", true);
     return false;
   }
@@ -1301,6 +1501,60 @@ document.addEventListener("click", async (e) => {
       break;
     }
     case "card-fmt": showCard(el.dataset.v); break;
+    case "card-regen": { const r = S.cardCur?.regen; if (r) await makeMatchCard(r.mid, r.kind); break; }
+    case "st-cat": S.stcat = el.dataset.v; render(); break;
+    case "st-config": stConfig(id); break;
+    case "stc-src": collectManual(); S.stEdit.source = el.dataset.v; renderStConfig(); break;
+    case "stm-add": collectManual(); S.stEdit.rows = [...(S.stEdit.rows || []), {}]; renderStConfig(); break;
+    case "stm-del": el.closest("tr").remove(); break;
+    case "stc-paste": {
+      collectManual();
+      const rows = parsePasted($("#stc-paste").value);
+      if (!rows.length) { toast("No he reconocido ninguna fila. Revisa el formato.", true); break; }
+      S.stEdit.rows = [...(S.stEdit.rows || []).filter((r) => r.team), ...rows];
+      renderStConfig(); toast(`${rows.length} equipos importados. Revísalos antes de guardar`);
+      break;
+    }
+    case "stc-search": {
+      const q = $("#stc-q").value.trim(); S.stQ = q;
+      const box = $("#stc-res"); box.innerHTML = `<p class="muted small">Buscando…</p>`;
+      try {
+        const ls = await searchLeagues(q);
+        ls.forEach((l) => (S.stLeagues[l.id] = l));
+        box.innerHTML = ls.length ? ls.map((l) => {
+          const cur = l.seasons.find((x) => x.current) || l.seasons[l.seasons.length - 1];
+          return `<button type="button" class="stc-l ${l.id === S.stEdit.league_id ? "on" : ""}" data-act="stc-pick" data-id="${l.id}">${l.logo && /^https:\/\//.test(l.logo) ? `<img src="${esc(l.logo)}" alt="">` : ""}<span><b>${esc(l.name)}</b><small>${cur ? `Temporada ${cur.year}/${String(cur.year + 1).slice(2)} · ${cur.standings ? "con clasificación" : "sin clasificación"}` : ""}</small></span></button>`;
+        }).join("") : `<p class="muted small">No he encontrado ligas de España con ese nombre en API-Football. Prueba con otras palabras (en inglés o sin tildes) o usa el modo manual.</p>`;
+      } catch (e) { box.innerHTML = `<p class="err">${esc(e.message)}</p>`; }
+      break;
+    }
+    case "stc-pick": {
+      const l = S.stLeagues[Number(id)]; if (!l) break;
+      const withSt = l.seasons.filter((x) => x.standings);
+      const cur = l.seasons.find((x) => x.current && x.standings) || withSt[withSt.length - 1] || l.seasons.find((x) => x.current) || l.seasons[l.seasons.length - 1];
+      Object.assign(S.stEdit, { league_id: l.id, league_name: l.name, league_logo: l.logo, season: cur ? cur.year : null, group_index: 0, team_name: null });
+      document.querySelectorAll(".stc-l").forEach((b) => b.classList.toggle("on", b.dataset.id === id));
+      renderStSel();
+      break;
+    }
+    case "stc-save": {
+      collectManual();
+      const c = S.stEdit;
+      if (c.source === "api" && (!c.league_id || !c.season)) { toast("Busca y elige una liga", true); break; }
+      if (c.source === "manual" && !manualTable(c.rows).length) { toast("Añade al menos un equipo", true); break; }
+      const row = { category: c.category, source: c.source, league_id: c.source === "api" ? c.league_id : null, season: c.source === "api" ? c.season : null,
+        league_name: c.source === "api" ? c.league_name : c.league_name || c.category, league_logo: c.source === "api" ? c.league_logo : null,
+        group_index: c.group_index || 0, team_name: c.team_name || null, rows: c.source === "manual" ? c.rows : [] };
+      closeModal();
+      S.stcat = c.category;
+      await run(() => S.store.saveStanding(row), "Clasificación guardada");
+      break;
+    }
+    case "stc-del": {
+      const cat = S.stEdit.category;
+      if (await confirmBox(`Se quitará la clasificación de ${cat}.`)) await run(() => S.store.deleteStanding(cat), "Clasificación quitada");
+      break;
+    }
     case "card-menu": cardMenu(id); break;
     case "card-make": await makeMatchCard(id, el.dataset.kind, el.dataset.ev); break;
     case "card-goal": { const ev = (S.data.events || []).find((e) => e.id === id); if (ev) await makeMatchCard(ev.match_id, "gol", id); break; }
@@ -1471,7 +1725,7 @@ document.addEventListener("submit", async (e) => {
         if (rf && rf.size) rival_logo_url = await S.store.uploadPhoto(await resizeImage(rf, 400, 0.92, "image/png"), "rivals");
         else if (!rival_logo_url && !fd.get("remove_rival_logo")) rival_logo_url = rivalLogoFor(fd.get("rival"));
         const data = {
-          rival_logo_url,
+          rival_logo_url, stadium: (fd.get("stadium") || "").trim() || null,
           id: f.dataset.id || undefined, match_date: fd.get("match_date"), kickoff_time: fd.get("kickoff_time") || null, category: fd.get("category"),
           competition: fd.get("competition").trim() || null, rival: fd.get("rival").trim(), venue: fd.get("venue"), formation: fd.get("formation"),
           goals_for: num(fd.get("goals_for")), goals_against: num(fd.get("goals_against")),
@@ -1561,7 +1815,7 @@ document.addEventListener("submit", async (e) => {
         club_name: fd.get("club_name").trim(), site_title: fd.get("site_title").trim(), season: fd.get("season").trim(),
         primary_color: fd.get("primary_color"), accent_color: fd.get("accent_color"),
         categories: fd.get("categories").split(",").map((s) => s.trim()).filter(Boolean),
-        allow_signup: !!fd.get("allow_signup"), private_mode: !!fd.get("private_mode"),
+        allow_signup: !!fd.get("allow_signup"), private_mode: !!fd.get("private_mode"), home_stadium: (fd.get("home_stadium") || "").trim() || null,
       }); }, "Ajustes guardados");
     }
   } finally {
@@ -1576,7 +1830,7 @@ $("#modal").addEventListener("close", () => { if (S.pendingRender) { S.pendingRe
 function render() {
   const h = location.hash.replace(/^#\/?/, "");
   const [route, id] = h.split("/");
-  const views = { "": viewHome, jugadores: viewPlayers, partidos: viewMatches, ajustes: viewSettings, usuarios: viewUsers, estadisticas: viewStats, contenido: viewContent };
+  const views = { "": viewHome, jugadores: viewPlayers, partidos: viewMatches, ajustes: viewSettings, usuarios: viewUsers, estadisticas: viewStats, contenido: viewContent, clasificacion: viewStandings };
   let html;
   if (S.data.settings.private_mode && !S.me) html = viewGate();
   else if (route === "jugador") html = viewPlayer(id);
@@ -1589,6 +1843,8 @@ function render() {
   });
   if (route === "jugador") drawTrend(id);
   if (route === "usuarios" && isAdmin()) loadUsers();
+  if (route === "clasificacion") loadStandingsBox();
+  if (route === "") loadHomeStanding();
   // etiquetas para tablas apiladas en móvil
   main.querySelectorAll("table.stack").forEach((t) => {
     const heads = [...t.querySelectorAll("thead th")].map((th) => th.textContent);

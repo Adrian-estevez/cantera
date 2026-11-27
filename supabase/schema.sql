@@ -268,6 +268,8 @@ alter table public.matches add column if not exists live_status text;
 alter table public.matches add column if not exists live_started_at timestamptz;
 alter table public.matches add column if not exists half_minutes int;
 alter table public.matches add column if not exists rival_logo_url text;
+alter table public.matches add column if not exists stadium text;
+alter table public.settings add column if not exists home_stadium text default 'Zebensui Ramos González';
 
 create table if not exists public.match_events (
   id uuid primary key default gen_random_uuid(),
@@ -302,6 +304,31 @@ begin
     end if;
   end loop;
 end $$;
+
+-- Clasificación por categoría (solo añade una tabla nueva)
+create table if not exists public.standings (
+  category text primary key,
+  source text not null default 'manual' check (source in ('api','manual')),
+  league_id int,
+  season int,
+  league_name text,
+  league_logo text,
+  group_index int not null default 0,
+  team_name text,
+  rows jsonb not null default '[]',
+  updated_at timestamptz not null default now()
+);
+alter table public.standings enable row level security;
+drop policy if exists "ver" on public.standings;
+drop policy if exists "crear" on public.standings;
+drop policy if exists "editar" on public.standings;
+drop policy if exists "borrar" on public.standings;
+create policy "ver" on public.standings for select using (public.can_view());
+create policy "crear" on public.standings for insert with check (public.is_admin());
+create policy "editar" on public.standings for update using (public.is_admin()) with check (public.is_admin());
+create policy "borrar" on public.standings for delete using (public.is_admin());
+grant select on public.standings to anon, authenticated;
+grant insert, update, delete on public.standings to authenticated;
 
 -- ---------- Fotos (Storage) ----------
 insert into storage.buckets (id, name, public)

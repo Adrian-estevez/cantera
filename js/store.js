@@ -14,11 +14,12 @@ const DEFAULT_SETTINGS = {
   private_mode: false,
   allow_signup: true,
   logo_url: null,
+  home_stadium: "Zebensui Ramos González",
 };
 
 const PLAYER_FIELDS = ["name", "nickname", "dorsal", "position", "detail_position", "foot", "birth_date", "birth_place",
   "nationality", "height_cm", "previous_clubs", "category", "status", "photo_url", "bio", "featured"];
-const MATCH_FIELDS = ["match_date", "kickoff_time", "category", "competition", "rival", "venue", "formation", "goals_for", "goals_against", "notes", "mvp_id", "rival_logo_url"];
+const MATCH_FIELDS = ["match_date", "kickoff_time", "category", "competition", "rival", "venue", "formation", "goals_for", "goals_against", "notes", "mvp_id", "rival_logo_url", "stadium"];
 const LINEUP_FIELDS = ["player_id", "starter", "slot", "minutes", "goals", "assists", "yellow", "red", "rating", "note"];
 const pick = (o, keys) => Object.fromEntries(keys.map((k) => [k, o[k] === undefined ? null : o[k]]));
 
@@ -78,7 +79,9 @@ function supabaseStore(sb) {
         sb.from("scout_notes").select("*").order("note_date", { ascending: false }),
       ]);
       const ev = await sb.from("match_events").select("*");
+      const st = await sb.from("standings").select("*");
       return {
+        standings: st.error ? [] : st.data || [],
         events: ev.error ? [] : ev.data || [],
         settings: { ...DEFAULT_SETTINGS, ...(must(s) || {}) },
         players: must(p) || [],
@@ -113,6 +116,12 @@ function supabaseStore(sb) {
     },
     async deleteMatch(id) {
       must(await sb.from("matches").delete().eq("id", id));
+    },
+    async saveStanding(row) {
+      must(await sb.from("standings").upsert({ ...row, updated_at: new Date().toISOString() }));
+    },
+    async deleteStanding(category) {
+      must(await sb.from("standings").delete().eq("category", category));
     },
     // ---- directo
     async updateMatch(id, patch) {
@@ -280,6 +289,7 @@ function demoStore() {
       const s = read();
       s.settings = { ...DEFAULT_SETTINGS, ...s.settings };
       s.events = s.events || [];
+      s.standings = s.standings || [];
       return structuredClone(s);
     },
     async savePlayer(p) {
@@ -312,6 +322,13 @@ function demoStore() {
         .concat(lineup.map((l) => ({ ...pick(l, LINEUP_FIELDS), match_id: row.id })));
       write(s);
       return row;
+    },
+    async saveStanding(row) {
+      const s = read(); s.standings = (s.standings || []).filter((x) => x.category !== row.category);
+      s.standings.push({ ...row, updated_at: new Date().toISOString() }); write(s);
+    },
+    async deleteStanding(category) {
+      const s = read(); s.standings = (s.standings || []).filter((x) => x.category !== category); write(s);
     },
     async updateMatch(id, patch) {
       const s = read(); const m = s.matches.find((x) => x.id === id);
