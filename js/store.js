@@ -18,7 +18,7 @@ const DEFAULT_SETTINGS = {
 
 const PLAYER_FIELDS = ["name", "nickname", "dorsal", "position", "detail_position", "foot", "birth_date", "birth_place",
   "nationality", "height_cm", "previous_clubs", "category", "status", "photo_url", "bio", "featured"];
-const MATCH_FIELDS = ["match_date", "kickoff_time", "category", "competition", "rival", "venue", "formation", "goals_for", "goals_against", "notes", "mvp_id"];
+const MATCH_FIELDS = ["match_date", "kickoff_time", "category", "competition", "rival", "venue", "formation", "goals_for", "goals_against", "notes", "mvp_id", "rival_logo_url"];
 const LINEUP_FIELDS = ["player_id", "starter", "slot", "minutes", "goals", "assists", "yellow", "red", "rating", "note"];
 const pick = (o, keys) => Object.fromEntries(keys.map((k) => [k, o[k] === undefined ? null : o[k]]));
 

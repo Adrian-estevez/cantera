@@ -267,6 +267,7 @@ grant execute on function public.admin_list_users(), public.admin_delete_user(uu
 alter table public.matches add column if not exists live_status text;
 alter table public.matches add column if not exists live_started_at timestamptz;
 alter table public.matches add column if not exists half_minutes int;
+alter table public.matches add column if not exists rival_logo_url text;
 
 create table if not exists public.match_events (
   id uuid primary key default gen_random_uuid(),

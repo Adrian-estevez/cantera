@@ -42,6 +42,22 @@ function teams(m) {
   const c = S.data.settings.club_name;
   return m.venue === "Visitante" ? [m.rival, c] : [c, m.rival];
 }
+// escudos [izquierda, derecha] para el marcador
+function crests(m) {
+  const club = safeImg(S.data.settings.logo_url), riv = safeImg(m.rival_logo_url);
+  const img = (src, name) => src ? `<img class="bcrest" src="${esc(src)}" alt="">` : `<span class="bcrest ini" aria-hidden="true">${esc(initials(name))}</span>`;
+  const c = img(club, S.data.settings.club_name), r = img(riv, m.rival);
+  return m.venue === "Visitante" ? [r, c] : [c, r];
+}
+const boardRow = (m, scoreCls = "") => {
+  const [a, b] = teams(m), [ca, cb] = crests(m);
+  return `<span class="board-row"><span class="board-team">${ca}<span>${esc(a)}</span></span><span class="board-score${scoreCls}">${esc(scoreText(m))}</span><span class="board-team r">${cb}<span>${esc(b)}</span></span></span>`;
+};
+const rivalLogoFor = (name) => {
+  const n = String(name || "").trim().toLowerCase();
+  const hit = S.data.matches.filter((m) => m.rival_logo_url && String(m.rival).trim().toLowerCase() === n).sort((a, b) => (b.match_date || "").localeCompare(a.match_date || ""))[0];
+  return hit ? hit.rival_logo_url : null;
+};
 
 function toast(msg, bad = false) {
   const t = $("#toast");
@@ -173,21 +189,21 @@ function viewHome() {
   const nextCard = next
     ? `<a class="board" href="#/partido/${esc(next.id)}">
         <span class="board-tag">Próximo partido · ${esc(m_meta(next))}</span>
-        <span class="board-row"><span class="board-team">${esc(teams(next)[0])}</span><span class="board-score time">${esc(scoreText(next))}</span><span class="board-team r">${esc(teams(next)[1])}</span></span>
+        ${boardRow(next, " time")}
         <span class="board-foot">${esc(fmtDate(next.match_date, true))}${next.competition ? ` · ${esc(next.competition)}` : ""}</span><span class="board-foot"><b>${lineupRows(next.id).some((r) => r.starter) ? "Ver el once" : "Once por confirmar"}</b></span>
       </a>`
     : "";
   const liveCard = liveM
     ? `<a class="board" href="#/partido/${esc(liveM.id)}">
         <span class="board-tag"><span class="livebadge"><i></i>En directo</span> ${esc(m_meta(liveM))}</span>
-        <span class="board-row"><span class="board-team">${esc(teams(liveM)[0])}</span><span class="board-score">${esc(scoreText(liveM))}</span><span class="board-team r">${esc(teams(liveM)[1])}</span></span>
+        ${boardRow(liveM)}
         <span class="board-foot"><b class="clock" data-clock="${esc(liveM.id)}">${esc(clockLabel(liveM))}</b> · Sigue el minuto a minuto</span>
       </a>`
     : "";
   const lastCard = liveCard || nextCard || (last
     ? `<a class="board" href="#/partido/${esc(last.id)}">
         <span class="board-tag">Último partido · ${esc(m_meta(last))}</span>
-        <span class="board-row"><span class="board-team">${esc(teams(last)[0])}</span><span class="board-score">${esc(scoreText(last))}</span><span class="board-team r">${esc(teams(last)[1])}</span></span>
+        ${boardRow(last)}
         <span class="board-foot"><span class="res res-${result(last)}">${RES_LABEL[result(last)]}</span>${last.mvp_id && player(last.mvp_id) ? ` MVP: <b>${esc(player(last.mvp_id).name)}</b>` : ""}</span>
       </a>`
     : `<div class="board empty-board"><span class="board-tag">Aún no hay partidos</span><span class="board-score">0-0</span>${canEdit() ? `<button class="btn" data-act="new-match">Añadir el primero</button>` : ""}</div>`);
@@ -419,7 +435,7 @@ function viewMatch(id) {
     <a class="back light" href="#/partidos">← Partidos</a>
     <div class="board big">
       <span class="board-tag">${esc([m.category, m.competition].filter(Boolean).join(" · "))}</span>
-      <span class="board-row"><span class="board-team">${esc(a)}</span><span class="board-score${pend ? " time" : ""}">${esc(scoreText(m))}</span><span class="board-team r">${esc(b)}</span></span>
+      ${boardRow(m, pend ? " time" : "")}
       <span class="board-foot">${foot}</span>
     </div>
     <div class="tools center">
@@ -593,7 +609,12 @@ function matchForm(m = {}) {
   modal(`<h2>${isNew ? "Nuevo partido" : result(m) === "P" ? "Poner resultado / editar" : "Editar partido"}</h2>
   ${isNew ? `<p class="muted">Créalo antes de jugarse. Después podrás montar el once en el campo y, al terminar, poner el resultado y las notas.</p>` : ""}
   <form id="matchform" class="form" data-id="${esc(m.id || "")}">
-    <div class="frow"><label class="grow">Rival *<input name="rival" value="${esc(m.rival || "")}" required></label>
+    <div class="rival-row"><span class="logo-prev sm" id="rival-prev">${safeImg(m.rival_logo_url) ? `<img src="${esc(safeImg(m.rival_logo_url))}" alt="Escudo del rival">` : `<span class="crest-ph">Escudo</span>`}</span>
+      <div class="rival-ctl"><label class="btn ghost small filebtn">${m.rival_logo_url ? "Cambiar escudo" : "Subir escudo o foto del rival"}<input type="file" name="rival_logo" accept="image/png,image/jpeg,image/webp,image/svg+xml" hidden></label>
+      ${m.rival_logo_url ? `<label class="check"><input type="checkbox" name="remove_rival_logo"> Quitar</label>` : ""}
+      <p class="muted small" id="rival-hint">${m.rival_logo_url ? "" : "Opcional. Si ya jugasteis contra este rival, se usa su escudo automáticamente."}</p></div></div>
+    <div class="frow"><label class="grow">Rival *<input name="rival" list="rivals-dl" autocomplete="off" value="${esc(m.rival || "")}" required></label>
+    <datalist id="rivals-dl">${[...new Set(S.data.matches.map((x) => x.rival).filter(Boolean))].sort().map((r) => `<option value="${esc(r)}">`).join("")}</datalist>
     <label>Campo<select name="venue">${opts(["Local", "Visitante", "Neutral"], m.venue || "Local")}</select></label></div>
     <div class="frow"><label>Fecha *<input type="date" name="match_date" value="${esc(m.match_date || today())}" required></label>
     <label class="w-s">Hora<input type="time" name="kickoff_time" value="${esc(m.kickoff_time || "")}"></label>
@@ -608,6 +629,12 @@ function matchForm(m = {}) {
     <div class="actions"><button type="button" class="btn ghost" data-act="close">Cancelar</button><button class="btn">${isNew ? "Crear y montar el once" : "Guardar"}</button></div>
   </form>`, true);
   if (isNew) $("#mf-cat").addEventListener("change", (e) => { $("#mf-formation").value = defaultFormation(e.target.value); });
+  $("#matchform [name=rival]").addEventListener("input", (e) => {
+    const f = $("#matchform [name=rival_logo]"); if (f.files.length || m.rival_logo_url) return;
+    const src = safeImg(rivalLogoFor(e.target.value));
+    $("#rival-prev").innerHTML = src ? `<img src="${esc(src)}" alt="Escudo del rival">` : `<span class="crest-ph">Escudo</span>`;
+    $("#rival-hint").textContent = src ? "Escudo reutilizado de un partido anterior." : "Opcional. Si ya jugasteis contra este rival, se usa su escudo automáticamente.";
+  });
 }
 
 // ---------- once interactivo
@@ -1123,7 +1150,7 @@ async function run(fn, okMsg) {
     return true;
   } catch (e) {
     console.error(e);
-    const msg = /kickoff_time|formation|'slot'|slot column|logo_url|base_(pj|goals|assists|yellow|red)|match_events|live_status|live_started_at|half_minutes/i.test(e.message || "") ? "Falta ejecutar en Supabase el SQL de actualización (mira las instrucciones)" : e.message;
+    const msg = /kickoff_time|formation|'slot'|slot column|logo_url|rival_logo_url|base_(pj|goals|assists|yellow|red)|match_events|live_status|live_started_at|half_minutes/i.test(e.message || "") ? "Falta ejecutar en Supabase el SQL de actualización (mira las instrucciones)" : e.message;
     toast(msg || "Algo ha fallado", true);
     return false;
   }
@@ -1357,6 +1384,9 @@ document.addEventListener("change", async (e) => {
   }
   if (e.target.id === "fpos") { S.filters.pos = e.target.value; render(); }
   if (e.target.id === "fstatus") { S.filters.status = e.target.value; render(); }
+  if (e.target.name === "rival_logo" && e.target.files[0]) {
+    $("#rival-prev").innerHTML = `<img src="${URL.createObjectURL(e.target.files[0])}" alt="Nuevo escudo">`;
+  }
   if (e.target.name === "logo" && e.target.files[0]) {
     $("#logo-prev").innerHTML = `<img src="${URL.createObjectURL(e.target.files[0])}" alt="Nuevo logo">`;
   }
@@ -1435,7 +1465,13 @@ document.addEventListener("submit", async (e) => {
     if (f.id === "matchform") {
       const old = f.dataset.id ? match(f.dataset.id) : null;
       const ok = await run(async () => {
+        let rival_logo_url = old ? old.rival_logo_url || null : null;
+        const rf = fd.get("rival_logo");
+        if (fd.get("remove_rival_logo")) rival_logo_url = null;
+        if (rf && rf.size) rival_logo_url = await S.store.uploadPhoto(await resizeImage(rf, 400, 0.92, "image/png"), "rivals");
+        else if (!rival_logo_url && !fd.get("remove_rival_logo")) rival_logo_url = rivalLogoFor(fd.get("rival"));
         const data = {
+          rival_logo_url,
           id: f.dataset.id || undefined, match_date: fd.get("match_date"), kickoff_time: fd.get("kickoff_time") || null, category: fd.get("category"),
           competition: fd.get("competition").trim() || null, rival: fd.get("rival").trim(), venue: fd.get("venue"), formation: fd.get("formation"),
           goals_for: num(fd.get("goals_for")), goals_against: num(fd.get("goals_against")),

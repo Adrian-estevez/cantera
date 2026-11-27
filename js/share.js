@@ -632,7 +632,7 @@ function crest(ctx, s, logo, label, x, y, r, isClub) {
   ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2);
   ctx.fillStyle = isClub ? "rgba(255,255,255,.1)" : "rgba(255,255,255,.92)"; ctx.fill();
   ctx.lineWidth = 6; ctx.strokeStyle = isClub ? s.accent_color : "rgba(255,255,255,.4)"; ctx.stroke();
-  if (isClub && logo) {
+  if (logo) {
     const k = Math.min((r * 1.35) / logo.width, (r * 1.35) / logo.height);
     ctx.drawImage(logo, x - (logo.width * k) / 2, y - (logo.height * k) / 2, logo.width * k, logo.height * k);
   } else {
@@ -660,12 +660,13 @@ export async function matchdayCard(m, data) {
   base(ctx, s);
   const logo = await loadImg(s.logo_url);
   header(ctx, s, [m.category, m.competition].filter(Boolean).join(" · ") || "Próximo partido", logo);
+  const rlogo = await loadImg(m.rival_logo_url);
   ctx.textAlign = "center"; ctx.textBaseline = "top";
   ctx.fillStyle = s.accent_color; fitText(ctx, "DÍA DE PARTIDO", W - 140, 120);
   ctx.fillText("DÍA DE PARTIDO", W / 2, 180);
   const [a, b] = sides(m, s);
-  crest(ctx, s, logo, a.n, 280, 520, 130, a.club);
-  crest(ctx, s, logo, b.n, W - 280, 520, 130, b.club);
+  crest(ctx, s, a.club ? logo : rlogo, a.n, 280, 520, 130, a.club);
+  crest(ctx, s, b.club ? logo : rlogo, b.n, W - 280, 520, 130, b.club);
   ctx.fillStyle = "#fff"; ctx.font = `700 90px ${HEAD}`; ctx.textBaseline = "middle"; ctx.textAlign = "center";
   ctx.fillText("VS", W / 2, 520);
   teamName(ctx, a.n, 280, 680, 400);
@@ -694,6 +695,7 @@ export async function scoreCard(m, data, events, stateLabel) {
   base(ctx, s);
   const logo = await loadImg(s.logo_url);
   header(ctx, s, [m.category, m.competition].filter(Boolean).join(" · ") || "Marcador", logo);
+  const rlogo = await loadImg(m.rival_logo_url);
   const [a, b] = sides(m, s);
   const home = m.venue !== "Visitante";
   const gl = home ? m.goals_for : m.goals_against, gr = home ? m.goals_against : m.goals_for;
@@ -707,8 +709,8 @@ export async function scoreCard(m, data, events, stateLabel) {
   ctx.fillStyle = live ? "#fff" : "#111";
   ctx.fillText(stateLabel.toUpperCase(), W / 2, 204);
   // escudos y marcador
-  crest(ctx, s, logo, a.n, 200, 420, 100, a.club);
-  crest(ctx, s, logo, b.n, W - 200, 420, 100, b.club);
+  crest(ctx, s, a.club ? logo : rlogo, a.n, 200, 420, 100, a.club);
+  crest(ctx, s, b.club ? logo : rlogo, b.n, W - 200, 420, 100, b.club);
   ctx.fillStyle = "#fff"; ctx.font = `700 210px ${HEAD}`;
   ctx.fillText(`${gl ?? 0}-${gr ?? 0}`, W / 2, 430);
   teamName(ctx, a.n, 200, 540, 290);
