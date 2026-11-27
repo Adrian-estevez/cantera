@@ -826,7 +826,7 @@ function renderStConfig() {
       <div class="seg" role="tablist"><button class="${c.source === "api" ? "on" : ""}" data-act="stc-src" data-v="api">Automática</button><button class="${c.source === "manual" ? "on" : ""}" data-act="stc-src" data-v="manual">Manual</button></div>
       ${c.source === "api" ? `
         <p class="muted small">Busca la liga de tu equipo. Solo aparecen ligas de España que tenga API-Football. Si la tuya no sale, usa el modo manual.</p>
-        <div class="frow"><input id="stc-q" placeholder="Ej.: Division de Honor Juvenil, Tercera, Liga Nacional" value="${esc(S.stQ || "")}"><button type="button" class="btn ghost" data-act="stc-search">Buscar</button></div>
+        <div class="frow"><input id="stc-q" placeholder="Ej.: Segunda Federación, Tercera, Juvenil" value="${esc(S.stQ || "")}"><button type="button" class="btn ghost" data-act="stc-search">Buscar</button><button type="button" class="btn ghost" data-act="stc-search" data-all="1">Ver todas</button></div>
         <div id="stc-res" class="stc-res">${c.league_id ? `<p class="small">Liga elegida: <b>${esc(c.league_name || "")}</b></p>` : ""}</div>
         <div id="stc-sel"></div>`
       : `
@@ -1516,7 +1516,7 @@ document.addEventListener("click", async (e) => {
       break;
     }
     case "stc-search": {
-      const q = $("#stc-q").value.trim(); S.stQ = q;
+      const q = el.dataset.all ? "" : $("#stc-q").value.trim(); S.stQ = q;
       const box = $("#stc-res"); box.innerHTML = `<p class="muted small">Buscando…</p>`;
       try {
         const ls = await searchLeagues(q);

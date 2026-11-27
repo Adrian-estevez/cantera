@@ -25,15 +25,20 @@ module.exports = async (req, res) => {
 
   try {
     if (q.type === "leagues") {
-      const s = String(q.search || "").replace(/[^\p{L}\p{N} ]/gu, "").trim().slice(0, 40);
-      if (s.length < 3) return send(res, 400, { error: "short", message: "Escribe al menos 3 letras." });
-      const r = await call(`/leagues?country=Spain&search=${encodeURIComponent(s)}`);
-      return send(res, 200, {
-        leagues: r.filter((x) => x.country && x.country.name === "Spain").map((x) => ({
+      // La API no permite combinar país y búsqueda: se piden todas las de España y se filtra aquí
+      const r = await call(`/leagues?country=Spain`);
+      const norm = (x) => String(x || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+      const STOP = new Set(["de", "la", "el", "del", "liga", "division", "grupo", "futbol"]);
+      const tokens = norm(q.search).replace(/[^a-z0-9 ]/g, " ").split(/\s+/).filter((t) => t && !STOP.has(t));
+      const alias = (n) => { const x = norm(n); return `${x} ${x.replace(/rfef/g, "federacion")} ${x.replace(/federacion/g, "rfef")} ${x.replace(/u19|sub-?19/g, "juvenil")}`; };
+      const list = r.filter((x) => x.country && x.country.name === "Spain")
+        .filter((x) => !tokens.length || tokens.every((t) => alias(x.league.name).includes(t === "federacion" ? "federacion" : t)))
+        .map((x) => ({
           id: x.league.id, name: x.league.name, type: x.league.type, logo: x.league.logo,
           seasons: (x.seasons || []).map((se) => ({ year: se.year, current: !!se.current, standings: !!(se.coverage && se.coverage.standings) })),
-        })),
-      }, "public, s-maxage=86400, stale-while-revalidate=604800");
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name, "es"));
+      return send(res, 200, { leagues: list }, "public, s-maxage=86400, stale-while-revalidate=604800");
     }
 
     if (q.type === "standings") {
