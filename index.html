@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>La Cantera</title>
+  <meta name="description" content="Fichas, partidos, notas e historial de los jugadores de la cantera. Por @futbolconadrix.">
+  <meta name="theme-color" content="#0a3a8c">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <div id="demo-banner" class="demo-banner" hidden>Modo demo · datos de ejemplo guardados solo en este navegador. Conecta Supabase en <code>js/config.js</code> para publicarla.</div>
+  <header class="top">
+    <a class="brand" href="#/">
+      <span class="crest" id="crest" aria-hidden="true">MC</span>
+      <span class="brand-t"><b id="brand-name">La Cantera</b><span id="brand-club">Mi Club</span></span>
+    </a>
+    <nav class="nav" aria-label="Principal">
+      <a href="#/">Inicio</a>
+      <a href="#/jugadores">Jugadores</a>
+      <a href="#/partidos">Partidos</a>
+      <a href="#/usuarios" id="nav-users" hidden>Usuarios</a>
+      <a href="#/ajustes" id="nav-settings" hidden>Ajustes</a>
+    </nav>
+    <div class="auth" id="auth"></div>
+  </header>
+
+  <main id="main"><section class="band"><p class="muted">Cargando…</p></section></main>
+
+  <footer class="foot">
+    <span>Contenido de <b id="foot-handle">@futbolconadrix</b></span>
+    <span id="foot-season"></span>
+  </footer>
+
+  <dialog id="modal"><div id="modal-body"></div></dialog>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
