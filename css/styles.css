@@ -420,6 +420,38 @@ a.bn:hover, button.bn:hover { background: color-mix(in srgb, var(--club) 12%, va
   .fsel, .fsel select { width: 100%; }
 }
 
+/* ---------- estadísticas ---------- */
+.lede-s { max-width: 70ch; margin: 6px 0 4px; }
+.kpis.light { max-width: 640px; margin: 14px 0 0; }
+.kpis.light div { background: var(--card); box-shadow: 0 0 0 1px var(--line); }
+.kpis.light span { color: var(--muted); opacity: 1; }
+.stats { min-width: 720px; }
+.stats td, .stats th { padding: 8px 8px; }
+.stats tbody tr:hover { background: var(--soft); }
+.stats .dim { color: var(--muted); }
+.stats .strong { font: 700 18px var(--head); }
+.sortb { background: none; border: 0; padding: 6px 2px; font: inherit; color: inherit; cursor: pointer; white-space: nowrap; min-height: 32px; }
+.sortb.on { color: var(--ink); font-weight: 700; }
+th.n .sortb { width: 100%; text-align: right; }
+.base td { vertical-align: middle; }
+.base input { width: 76px; min-height: 40px; padding: 6px 8px; text-align: right; }
+.base .plus { display: block; color: var(--muted); font-size: 12px; margin-top: 2px; }
+.base tr.changed td { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.savebar { position: sticky; bottom: 0; display: flex; gap: 10px; align-items: center; justify-content: flex-end; flex-wrap: wrap; padding: 12px 0 4px; margin-top: 10px; background: var(--card); border-top: 1px solid var(--line); }
+.savebar span { margin-right: auto; }
+.basenote { margin: 12px 0 0; }
+@media (max-width: 600px) {
+  .base thead { display: none; }
+  .base tr { display: grid !important; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; padding: 12px 0 !important; border-bottom: 1px solid var(--line); }
+  .base td { display: block !important; padding: 0 !important; border: 0; text-align: center !important; }
+  .base td:first-child { grid-column: 1 / -1; text-align: start !important; margin-bottom: 4px; }
+  .base td::before { float: none !important; display: block; width: auto !important; margin: 0 0 2px !important; font-size: 12px; color: var(--muted); }
+  .base td:first-child::before { display: none; }
+  .base input { width: 100%; text-align: center; padding: 6px 2px; }
+  .savebar { padding-bottom: 8px; }
+  .savebar span { flex-basis: 100%; }
+}
+
 /* ---------- responsive ---------- */
 @media (max-width: 1000px) {
   .grid3 { grid-template-columns: minmax(0, 1fr); }

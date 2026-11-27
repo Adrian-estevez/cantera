@@ -93,6 +93,12 @@ function supabaseStore(sb) {
     async deletePlayer(id) {
       must(await sb.from("players").delete().eq("id", id));
     },
+    async saveBaseStats(list) {
+      for (const x of list) {
+        const { id, ...vals } = x;
+        must(await sb.from("players").update(vals).eq("id", id));
+      }
+    },
     async saveMatch(m, lineup) {
       const row = pick(m, MATCH_FIELDS);
       const saved = m.id
@@ -257,6 +263,11 @@ function demoStore() {
       i >= 0 ? (s.players[i] = { ...s.players[i], ...row }) : s.players.push(row);
       write(s);
       return row;
+    },
+    async saveBaseStats(list) {
+      const s = read();
+      for (const x of list) { const p = s.players.find((y) => y.id === x.id); if (p) Object.assign(p, x); }
+      write(s);
     },
     async deletePlayer(id) {
       const s = read();

@@ -202,6 +202,13 @@ alter table public.matches add column if not exists kickoff_time text;
 alter table public.matches add column if not exists formation text;
 alter table public.match_players add column if not exists slot int;
 
+-- Cifras previas (partidos no registrados en la web). Solo añaden campos.
+alter table public.players add column if not exists base_pj int not null default 0;
+alter table public.players add column if not exists base_goals int not null default 0;
+alter table public.players add column if not exists base_assists int not null default 0;
+alter table public.players add column if not exists base_yellow int not null default 0;
+alter table public.players add column if not exists base_red int not null default 0;
+
 create index if not exists idx_matches_date on public.matches(match_date desc);
 create index if not exists idx_mp_player on public.match_players(player_id);
 create index if not exists idx_notes_player on public.scout_notes(player_id);

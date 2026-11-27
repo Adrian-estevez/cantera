@@ -92,15 +92,20 @@ export function playerStats(pid, data) {
     .sort((x, y) => (y.match.match_date || "").localeCompare(x.match.match_date || ""));
   const rated = apps.filter((a) => a.rating != null && a.rating !== "");
   const sum = (k) => apps.reduce((s, a) => s + (Number(a[k]) || 0), 0);
+  const p = data.players.find((x) => x.id === pid) || {};
+  const base = { pj: Number(p.base_pj) || 0, goals: Number(p.base_goals) || 0, assists: Number(p.base_assists) || 0, yellow: Number(p.base_yellow) || 0, red: Number(p.base_red) || 0 };
   return {
     apps,
-    pj: apps.length,
+    base,
+    hasBase: Object.values(base).some(Boolean),
+    reg: { pj: apps.length, goals: sum("goals"), assists: sum("assists"), yellow: sum("yellow"), red: sum("red") },
+    pj: apps.length + base.pj,
     starts: apps.filter((a) => a.starter).length,
     minutes: sum("minutes"),
-    goals: sum("goals"),
-    assists: sum("assists"),
-    yellow: sum("yellow"),
-    red: sum("red"),
+    goals: sum("goals") + base.goals,
+    assists: sum("assists") + base.assists,
+    yellow: sum("yellow") + base.yellow,
+    red: sum("red") + base.red,
     avg: rated.length ? rated.reduce((s, a) => s + Number(a.rating), 0) / rated.length : null,
     mvps: data.matches.filter((m) => m.mvp_id === pid).length,
   };

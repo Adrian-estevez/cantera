@@ -288,6 +288,7 @@ function viewPlayer(id) {
       ${[["PJ", st.pj], ["Titular", st.starts], ["Minutos", st.minutes], ["Goles", st.goals], ["Asist.", st.assists], ["Nota media", fmtRating(st.avg), ratingClass(st.avg)], ["MVP", st.mvps], ["Tarjetas", `${st.yellow}A · ${st.red}R`]]
         .map(([k, v, c]) => `<div class="stat ${c || ""}"><b>${esc(v)}</b><span>${esc(k)}</span></div>`).join("")}
     </div>
+    ${st.hasBase ? `<p class="muted small basenote">Incluye cifras previas apuntadas a mano: ${st.base.pj} PJ, ${st.base.goals} goles, ${st.base.assists} asist., ${st.base.yellow} TA, ${st.base.red} TR.</p>` : ""}
     ${st.apps.some((x) => x.rating != null && x.rating !== "") ? `<div class="panel chart-panel"><div class="panel-h"><h2>Evolución de notas</h2><span class="muted small">últimos 12 partidos</span></div><div class="fig" id="trend"></div></div>` : ""}
   </section>
   <section class="band two">
@@ -413,6 +414,67 @@ function viewMatch(id) {
       </div>
     </aside>
   </section>`;
+}
+
+// ------------------------------------------------------------ estadísticas
+const SCOLS = [["dorsal", "#"], ["name", "Jugador"], ["pj", "PJ"], ["minutes", "Min"], ["goals", "Goles"], ["assists", "Asist."], ["yellow", "TA"], ["red", "TR"], ["avg", "Nota"], ["mvps", "MVP"]];
+const BASE = [["base_pj", "PJ", "pj"], ["base_goals", "Goles", "goals"], ["base_assists", "Asist.", "assists"], ["base_yellow", "TA", "yellow"], ["base_red", "TR", "red"]];
+
+function viewStats() {
+  const d = S.data, f = S.filters;
+  const cat = f.scat ?? "";
+  const sort = S.ssort || { k: "goals", dir: -1 };
+  const editing = canEdit() && S.sedit;
+  const cats = [...new Set([...d.settings.categories, ...d.players.map((p) => p.category).filter(Boolean)])];
+  const list = d.players.filter((p) => p.status !== "Baja" && (!cat || p.category === cat))
+    .map((p) => ({ p, st: playerStats(p.id, d) }));
+  const val = (x, k) => k === "name" ? x.p.name : k === "dorsal" ? (x.p.dorsal ?? 999) : (x.st[k] ?? -1);
+  list.sort((a, b) => {
+    const va = val(a, sort.k), vb = val(b, sort.k);
+    const c = typeof va === "string" ? va.localeCompare(vb) : va - vb;
+    return c * sort.dir || (b.st.goals - a.st.goals) || a.p.name.localeCompare(b.p.name);
+  });
+  const tot = list.reduce((t, x) => { ["pj", "goals", "assists", "yellow", "red"].forEach((k) => (t[k] += x.st[k])); return t; }, { pj: 0, goals: 0, assists: 0, yellow: 0, red: 0 });
+  const chips = `<div class="chips" role="group" aria-label="Categoría">
+      <button class="chip ${!cat ? "on" : ""}" data-act="fscat" data-v="">Todas</button>
+      ${cats.map((c) => `<button class="chip ${cat === c ? "on" : ""}" data-act="fscat" data-v="${esc(c)}">${esc(c)}</button>`).join("")}</div>`;
+
+  if (editing) {
+    return `<section class="band page-h">
+      <div class="row-between"><h1>Cifras previas</h1></div>
+      <p class="lede-s">Escribe lo que lleva cada jugador <b>en los partidos que no vas a registrar en la web</b>. Se suma automáticamente a lo que apunte en los partidos que sí registres (el número pequeño gris). No cambia nada más.</p>
+      ${chips}
+    </section>
+    <section class="band tight"><form id="baseform" class="panel">
+      <table class="stack base"><thead><tr><th>Jugador</th>${BASE.map(([, l]) => `<th class="n">${l}</th>`).join("")}</tr></thead><tbody>
+      ${list.map(({ p, st }) => `<tr data-id="${esc(p.id)}"><td><span class="who">${avatar(p, "xs")}<span><small>${esc(p.dorsal ?? "")}</small> ${esc(p.name)}</span></span></td>
+        ${BASE.map(([k, l, rk]) => `<td class="n"><input type="number" min="0" max="999" inputmode="numeric" name="${k}" value="${esc(Number(p[k]) || 0)}" aria-label="${l} previos de ${esc(p.name)}" data-orig="${esc(Number(p[k]) || 0)}">${st.reg[rk] ? `<small class="plus" title="En partidos registrados">+${st.reg[rk]}</small>` : ""}</td>`).join("")}</tr>`).join("") || `<tr><td>No hay jugadores en esta categoría.</td></tr>`}
+      </tbody></table>
+      <div class="savebar"><span class="muted" id="base-count">Sin cambios</span><button type="button" class="btn ghost" data-act="sedit-off">Cancelar</button><button class="btn">Guardar cifras</button></div>
+    </form></section>`;
+  }
+
+  const th = (k, l) => `<th class="${["name", "dorsal"].includes(k) ? "" : "n"}"><button class="sortb ${sort.k === k ? "on" : ""}" data-act="ssort" data-v="${k}" aria-label="Ordenar por ${l}">${l}${sort.k === k ? (sort.dir < 0 ? " ↓" : " ↑") : ""}</button></th>`;
+  return `<section class="band page-h">
+    <div class="row-between"><h1>Estadísticas</h1>${canEdit() ? `<button class="btn" data-act="sedit-on">Editar cifras previas</button>` : ""}</div>
+    <div class="kpis light">
+      <div><b>${tot.goals}</b><span>Goles</span></div><div><b>${tot.assists}</b><span>Asistencias</span></div>
+      <div><b>${tot.yellow}</b><span>Amarillas</span></div><div><b>${tot.red}</b><span>Rojas</span></div>
+    </div>
+    ${chips}
+  </section>
+  <section class="band tight"><div class="panel">
+    <div class="scroll"><table class="stats"><thead><tr>${SCOLS.map(([k, l]) => th(k, l)).join("")}</tr></thead><tbody>
+    ${list.map(({ p, st }) => `<tr>
+      <td class="n dim">${esc(p.dorsal ?? "")}</td>
+      <td><a class="who" href="#/jugador/${esc(p.id)}">${avatar(p, "xs")}<span>${esc(p.name)}<small class="muted"> ${esc(p.category || "")}</small></span></a></td>
+      <td class="n">${st.pj}</td><td class="n dim">${st.minutes || ""}</td>
+      <td class="n strong">${st.goals || ""}</td><td class="n">${st.assists || ""}</td>
+      <td class="n">${st.yellow ? `<span class="card-y"></span> ${st.yellow}` : ""}</td><td class="n">${st.red ? `<span class="card-r"></span> ${st.red}` : ""}</td>
+      <td class="n">${st.avg != null ? `<span class="rt ${ratingClass(st.avg)}">${fmtRating(st.avg)}</span>` : ""}</td><td class="n">${st.mvps || ""}</td></tr>`).join("") || `<tr><td colspan="10" class="empty">No hay jugadores en esta categoría.</td></tr>`}
+    </tbody></table></div>
+    <p class="muted small">Incluye las cifras previas apuntadas a mano y los partidos registrados en la web. Minutos y nota solo cuentan partidos registrados.</p>
+  </div></section>`;
 }
 
 function viewSettings() {
@@ -712,7 +774,7 @@ async function run(fn, okMsg) {
     return true;
   } catch (e) {
     console.error(e);
-    const msg = /kickoff_time|formation|'slot'|slot column|logo_url/i.test(e.message || "") ? "Falta ejecutar en Supabase el SQL de actualización (mira las instrucciones)" : e.message;
+    const msg = /kickoff_time|formation|'slot'|slot column|logo_url|base_(pj|goals|assists|yellow|red)/i.test(e.message || "") ? "Falta ejecutar en Supabase el SQL de actualización (mira las instrucciones)" : e.message;
     toast(msg || "Algo ha fallado", true);
     return false;
   }
@@ -745,6 +807,10 @@ document.addEventListener("click", async (e) => {
     case "ufilter": S.ufilter = el.dataset.v; renderUsers(); break;
     case "fcat": S.filters.cat = el.dataset.v; render(); break;
     case "fmcat": S.filters.mcat = el.dataset.v; render(); break;
+    case "fscat": S.filters.scat = el.dataset.v; render(); break;
+    case "ssort": { const k = el.dataset.v, cur = S.ssort || { k: "goals", dir: -1 }; S.ssort = { k, dir: cur.k === k ? -cur.dir : (["name", "dorsal"].includes(k) ? 1 : -1) }; render(); break; }
+    case "sedit-on": S.sedit = true; render(); break;
+    case "sedit-off": S.sedit = false; render(); break;
     case "new-player": playerForm(); break;
     case "edit-player": playerForm(player(id)); break;
     case "del-player":
@@ -842,6 +908,12 @@ document.addEventListener("click", async (e) => {
 
 document.addEventListener("input", (e) => {
   if (e.target.id === "uq") { S.uq = e.target.value; renderUsers(); return; }
+  if (e.target.closest && e.target.closest("#baseform")) {
+    const n = [...document.querySelectorAll("#baseform tbody tr[data-id]")].filter((tr) => [...tr.querySelectorAll("input")].some((i) => String(Math.max(0, Math.floor(num(i.value) ?? 0))) !== i.dataset.orig)).length;
+    $("#base-count").textContent = n ? `${n} jugador${n === 1 ? "" : "es"} con cambios` : "Sin cambios";
+    e.target.closest("tr").classList.toggle("changed", [...e.target.closest("tr").querySelectorAll("input")].some((i) => String(Math.max(0, Math.floor(num(i.value) ?? 0))) !== i.dataset.orig));
+    return;
+  }
   if (e.target.id === "pick-q") {
     const q = e.target.value.trim().toLowerCase();
     document.querySelectorAll(".pk").forEach((b) => (b.hidden = !!q && !b.dataset.q.includes(q)));
@@ -963,6 +1035,18 @@ document.addEventListener("submit", async (e) => {
       }, old ? "Partido guardado" : "Partido creado. Ahora monta el once");
       if (!ok) btn.disabled = false;
     }
+    if (f.id === "baseform") {
+      const changes = [...f.querySelectorAll("tbody tr[data-id]")].map((tr) => {
+        const out = { id: tr.dataset.id }; let changed = false;
+        tr.querySelectorAll("input").forEach((i) => { const v = Math.max(0, Math.floor(num(i.value) ?? 0)); out[i.name] = v; if (String(v) !== i.dataset.orig) changed = true; });
+        return changed ? out : null;
+      }).filter(Boolean);
+      if (!changes.length) { S.sedit = false; render(); toast("No había cambios"); }
+      else {
+        const ok = await run(() => S.store.saveBaseStats(changes), `Guardado: ${changes.length} jugador${changes.length === 1 ? "" : "es"}`);
+        if (ok) { S.sedit = false; render(); }
+      }
+    }
     if (f.id === "rateform") {
       const mid = f.dataset.mid, pid = f.dataset.pid, m = { ...match(mid) };
       const rows = lineupRows(mid), r = rows.find((x) => x.player_id === pid);
@@ -999,7 +1083,7 @@ $("#modal").addEventListener("click", (e) => { if (e.target.id === "modal") clos
 function render() {
   const h = location.hash.replace(/^#\/?/, "");
   const [route, id] = h.split("/");
-  const views = { "": viewHome, jugadores: viewPlayers, partidos: viewMatches, ajustes: viewSettings, usuarios: viewUsers };
+  const views = { "": viewHome, jugadores: viewPlayers, partidos: viewMatches, ajustes: viewSettings, usuarios: viewUsers, estadisticas: viewStats };
   let html;
   if (S.data.settings.private_mode && !S.me) html = viewGate();
   else if (route === "jugador") html = viewPlayer(id);
@@ -1019,7 +1103,8 @@ function render() {
   });
 }
 
-window.addEventListener("hashchange", () => { render(); window.scrollTo(0, 0); });
+window.addEventListener("hashchange", () => {
+  if (!location.hash.includes("estadisticas")) S.sedit = false; render(); window.scrollTo(0, 0); });
 
 (async () => {
   try {
