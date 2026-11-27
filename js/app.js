@@ -812,6 +812,7 @@ function stConfig(cat) {
   const c = cat || cats[0];
   const cfg = (S.data.standings || []).find((x) => x.category === c);
   S.stEdit = cfg ? structuredClone(cfg) : { category: c, source: "api", rows: [], group_index: 0 };
+  S.stWarnAck = false;
   S.stLeagues = S.stLeagues || {};
   renderStConfig();
 }
@@ -835,7 +836,7 @@ function renderStConfig() {
           <span class="muted small" id="stc-photo-msg">Haz una captura de la tabla (web de la federación, una app…) y la web la lee sola.</span></div>
         ${manualRows.some((r) => r.check) ? `<p class="stm-warn">Revisa las filas marcadas en rojo: algún número no se leyó bien (PJ tiene que ser G + E + P).</p>` : ""}
         <div class="scroll"><table class="stm"><thead><tr><th>Equipo</th><th>PJ</th><th>G</th><th>E</th><th>P</th><th>GF</th><th>GC</th><th></th></tr></thead><tbody id="stm-body">
-          ${manualRows.map((r) => `<tr class="stm-row${r.team && (r.check || (r.pj !== "" && r.pj != null && Number(r.pj) !== (Number(r.g) || 0) + (Number(r.e) || 0) + (Number(r.p) || 0))) ? " warn" : ""}"><td><input name="team" value="${esc(r.team || "")}" placeholder="Nombre del equipo"></td>${["pj", "g", "e", "p", "gf", "gc"].map((k) => `<td><input name="${k}" type="number" min="0" inputmode="numeric" value="${esc(r[k] ?? "")}"></td>`).join("")}<td><button type="button" class="x" data-act="stm-del" aria-label="Quitar equipo">×</button></td></tr>`).join("")}
+          ${manualRows.map((r) => { const warn = r.team && (r.check || (r.pj !== "" && r.pj != null && Number(r.pj) !== (Number(r.g) || 0) + (Number(r.e) || 0) + (Number(r.p) || 0))); return `<tr class="stm-row${warn ? " warn" : ""}" data-check="${warn ? 1 : 0}"><td><input name="team" value="${esc(r.team || "")}" placeholder="Nombre del equipo"></td>${["pj", "g", "e", "p", "gf", "gc"].map((k) => `<td><input name="${k}" type="number" min="0" inputmode="numeric" value="${esc(r[k] ?? "")}"></td>`).join("")}<td><button type="button" class="x" data-act="stm-del" aria-label="Quitar equipo">×</button></td></tr>`; }).join("")}
         </tbody></table></div>
         <div class="frow"><button type="button" class="btn ghost small" data-act="stm-add">+ Añadir equipo</button></div>
         <details class="stm-paste"><summary>Pegar la tabla desde Excel o desde la web de la federación</summary>
@@ -852,53 +853,162 @@ function collectManual() {
   const c = S.stEdit; if (!c || c.source !== "manual" || !$("#stm-body")) return;
   c.rows = [...document.querySelectorAll("#stm-body .stm-row")].map((tr) => {
     const o = {}; tr.querySelectorAll("input").forEach((i) => (o[i.name] = i.name === "team" ? i.value.trim() : i.value === "" ? "" : Number(i.value)));
+    if (tr.dataset.check === "1") o.check = true;
     return o;
   }).filter((r) => r.team || ["pj", "g", "e", "p", "gf", "gc"].some((k) => r[k] !== ""));
   const t = $("#stc-team"); if (t) c.team_name = t.value || null;
 }
 function parsePasted(text) {
-  // Acepta filas pegadas o leídas de una foto. Busca 6 números seguidos donde PJ = G + E + P,
-  // elige la misma posición de columnas para toda la tabla y marca las filas dudosas.
-  const isNum = (t) => /^[+\-−]?\d+$/.test(t);
-  const lines = String(text || "").split(/\r?\n/).map((line) => {
-    let l = line.replace(/\t/g, " ").replace(/[|·•]/g, " ").replace(/\s+/g, " ").trim();
-    if (!l) return null;
+  // Lee filas pegadas o sacadas de una foto. Entiende columnas en cualquier orden, goles "30:9",
+  // racha con letras y escudos (ruido). Marca con check:true las filas que conviene revisar.
+  const PREFIX = new Set(["CD", "UD", "CF", "CP", "AD", "SD", "RC", "CA", "UE", "FC", "CE", "SC", "AT", "RCD", "UB", "UP", "AC"]);
+  const numTok = (t) => /^[+\-−–«“"']?\d+$/.test(t) || /^\d+:\d+$/.test(t) || /^[+\-−–]$/.test(t);
+  const parsed = String(text || "").split(/\r?\n/).map((raw) => {
+    let l = raw.replace(/\t/g, " ").replace(/[|·•()[\]{}]/g, " ").replace(/\s+/g, " ").trim();
+    if (!l || !/\d/.test(l)) return null;
+    if (/\b(PTS|DIFF|GLS|Últimas|Ultimas|Equipo|Clasificaci)/i.test(l) && !/\d+\s*:\s*\d+/.test(l)) return null;
+    let suspicious = false;
     l = l.replace(/(?<=\d)[Oo](?=\d|\b)/g, "0").replace(/\b[Oo](?=\d)/g, "0").replace(/(?<=\d)[lI](?=\d|\b)/g, "1");
-    const toks = l.split(" ");
-    // bloque final de números (se toleran 1-2 caracteres basura entre números: el OCR a veces confunde una cifra)
-    let i = toks.length;
-    while (i > 0 && (isNum(toks[i - 1]) || (toks[i - 1].length <= 2 && i - 2 >= 0 && isNum(toks[i - 2]) && i < toks.length))) i--;
-    const nums = toks.slice(i).map((t) => (isNum(t) ? Number(t.replace("−", "-")) : null));
-    let nameToks = toks.slice(0, i);
-    if (nameToks.length && /^\d+[.ºª)]?$/.test(nameToks[0])) nameToks = nameToks.slice(1);
-    const team = nameToks.join(" ").replace(/^[^\p{L}\d]+/u, "").trim();
-    if (!team || !/\p{L}/u.test(team) || nums.filter((x) => x != null).length < 5 || nums.length < 6) return null;
-    const cands = [];
-    for (let j = 0; j + 5 < nums.length; j++) {
-      const [pj, g, e, p, gf, gc] = nums.slice(j, j + 6);
-      if ([pj, g, e, p, gf, gc].every((x) => x != null && x >= 0) && pj === g + e + p) {
-        cands.push({ j, ptsOk: nums.some((x, q) => (q < j || q > j + 5) && x === 3 * g + e) });
+    l = l.replace(/(\d)\.(\d)/g, "$1 $2").replace(/(\d)[.,](?=\s|$)/g, "$1").replace(/(\d)\s*[:;]\s*(\d)/g, "$1:$2");
+    l = l.replace(/(\d)[xX%](\d)/g, (m, a1, b1) => { suspicious = true; return `${a1}:${b1}`; });
+    let toks = l.split(" ").filter(Boolean);
+    if (toks.length && /^\d+$/.test(toks[0]) && toks.length > 1) toks = toks.slice(1);   // posición
+    const first = toks.findIndex((t, i) => i > 0 && numTok(t) && toks.slice(0, i).some((x) => /\p{L}{2,}/u.test(x)));
+    if (first === -1) return null;
+    let name = toks.slice(0, first);
+    while (name.length > 1 && (/[^\p{L}.'’-]/u.test(name[0]) || (name[0].length <= 2 && !PREFIX.has(name[0])))) name = name.slice(1);
+    while (name.length > 1 && !PREFIX.has(name[name.length - 1]) && /^([WDLVEP]{1,5}|[A-ZÁÉ]{2}|[^\p{L}]+)$/u.test(name[name.length - 1])) name = name.slice(0, -1);
+    let team = name.join(" ").replace(/^[^\p{L}]+/u, "").trim();
+    if (!team || !/\p{L}{2,}/u.test(team)) return null;
+    team = team.charAt(0).toUpperCase() + team.slice(1);
+    team = team.replace(/\b(CD|UD|CF|CP|CA|AD|SD|RC|UE|FC|CE|SC)(?=[A-ZÁÉÍÓÚ][a-záéíóúñ])/g, "$1 ");
+    // números de la fila (se descartan letras de la racha y basura)
+    const nums = [];
+    const tail = toks.slice(first);
+    for (let ti = 0; ti < tail.length; ti++) {
+      const t = tail[ti];
+      // 1-2 caracteres basura entre dos números = cifra mal leída (hueco)
+      if (!numTok(t) && t.length <= 2 && ti > 0 && ti < tail.length - 1 && numTok(tail[ti - 1]) && numTok(tail[ti + 1])) { nums.push({ v: null, raw: "", sign: null, hole: true }); continue; }
+      if (/^\d+:\d+$/.test(t)) { const [x, y] = t.split(":").map(Number); nums.push({ gls: [x, y] }); continue; }
+      const m = t.match(/^([+\-−–«“"']?)(\d+)$/);
+      if (m) { const sign = m[1] === "+" ? 1 : /[-−–]/.test(m[1]) ? -1 : m[1] ? 0 : null; nums.push({ v: Number(m[2]), raw: m[2], sign }); continue; }
+      if (/^[+\-−–]$/.test(t)) nums.push({ v: null, sign: t === "+" ? 1 : -1, raw: "" });
+    }
+    return { team, nums, suspicious };
+  }).filter(Boolean);
+
+  const exactWins = (nums) => {
+    const plain = nums.map((n, i) => ({ ...n, i })).filter((n) => (n.v != null || n.hole) && !n.gls);
+    const out = [];
+    for (let k = 0; k + 3 < plain.length; k++) {
+      const [a, b, c, d] = plain.slice(k, k + 4);
+      if ([a, b, c, d].some((x) => x.v == null)) continue;
+      if (a.v === b.v + c.v + d.v && a.v > 0 && a.v <= 60) out.push({ k, pj: a.v, w: b.v, d: c.v, l: d.v, end: d.i, exact: true });
+    }
+    return out;
+  };
+  const findWindow = (nums, pjHint, kModal) => {
+    const plain = nums.map((n, i) => ({ ...n, i })).filter((n) => (n.v != null || n.hole) && !n.gls);
+    const ex = exactWins(nums);
+    const atModal = ex.find((x) => x.k === kModal);
+    if (atModal) return atModal;
+    // en la posición habitual de la tabla: deducir un hueco o un valor imposible
+    if (pjHint && plain.length > kModal + 3) {
+      const q = plain.slice(kModal, kModal + 4);
+      let [pj, w, d, l] = q.map((x) => x.v);
+      const holes = [pj, w, d, l].filter((x) => x == null).length;
+      if (holes === 1) {
+        if (pj == null) pj = w + d + l; else if (w == null) w = pj - d - l; else if (d == null) d = pj - w - l; else l = pj - w - d;
+        if ([pj, w, d, l].every((x) => x >= 0) && Math.abs(pj - pjHint) <= 2) return { pj, w, d, l, end: q[3].i, exact: false };
+      } else if (holes === 0 && pj === pjHint) {
+        const bad = [w, d, l].filter((x) => x > pj).length;
+        if (bad === 1) { if (w > pj) w = pj - d - l; else if (d > pj) d = pj - w - l; else l = pj - w - d; if ([w, d, l].every((x) => x >= 0)) return { pj, w, d, l, end: q[3].i, exact: false }; }
       }
     }
-    return { team, nums, cands };
-  }).filter(Boolean);
-  const votes = {};
-  lines.forEach((L) => { const c = L.cands.length === 1 ? L.cands[0] : L.cands.find((x) => x.ptsOk); if (c) votes[c.j] = (votes[c.j] || 0) + 1; });
-  const modal = Object.keys(votes).length ? Number(Object.entries(votes).sort((a, b) => b[1] - a[1])[0][0]) : null;
-  return lines.map(({ team, nums, cands }) => {
-    let k = (cands.find((c) => c.j === modal) || cands.find((c) => c.ptsOk) || cands[0] || {}).j;
-    if (k == null) k = modal != null && modal + 5 < nums.length ? modal : nums.length >= 7 && nums[0] === 3 * nums[2] + nums[3] ? 1 : 0;
-    let [pj, g, e, p, gf, gc] = nums.slice(k, k + 6);
-    // si falta un solo dato de PJ/G/E/P, se deduce
-    const four = [pj, g, e, p], miss = four.filter((x) => x == null).length;
-    if (miss === 1) {
-      if (pj == null) pj = g + e + p; else if (g == null) g = pj - e - p; else if (e == null) e = pj - g - p; else p = pj - g - e;
+    if (ex.length) return { ...ex[0], exact: ex[0].k === kModal || !pjHint ? ex[0].exact : false };
+    if (pjHint) for (let k = 0; k + 3 < plain.length; k++) {
+      const [, b, c, d] = plain.slice(k, k + 4);
+      const sum = b.v + c.v + d.v;
+      if (sum >= pjHint - 2 && sum <= pjHint && b.v <= 60 && c.v <= 60 && d.v <= 60) return { pj: sum, w: b.v, d: c.v, l: d.v, end: d.i, exact: false };
     }
-    const vals = [pj, g, e, p, gf, gc];
-    const check = vals.some((x) => x == null || x < 0) || pj !== g + e + p || miss === 1;
-    const v = (x) => (x == null || x < 0 ? "" : x);
-    return { team, pj: v(pj), g: v(g), e: v(e), p: v(p), gf: v(gf), gc: v(gc), check };
-  }).filter(Boolean);
+    return null;
+  };
+  const kv = {}; parsed.forEach((r) => { const ex = exactWins(r.nums); if (ex.length === 1) kv[ex[0].k] = (kv[ex[0].k] || 0) + 1; });
+  const kModal = Object.keys(kv).length ? Number(Object.entries(kv).sort((a, b) => b[1] - a[1])[0][0]) : 0;
+  const exactPJ = parsed.map((r) => findWindow(r.nums, null, kModal)).filter((w) => w && w.exact).map((w) => w.pj);
+  const freq = {}; exactPJ.forEach((x) => (freq[x] = (freq[x] || 0) + 1));
+  const pjModal = exactPJ.length ? Number(Object.entries(freq).sort((a, b) => b[1] - a[1])[0][0]) : null;
+
+  return parsed.map(({ team, nums, suspicious }) => {
+    const w = findWindow(nums, pjModal, kModal);
+    if (!w) return { team, pj: "", g: "", e: "", p: "", gf: "", gc: "", check: true };
+    let check = !w.exact || suspicious;
+    const rest = nums.slice(w.end + 1);
+    // diferencia de goles: número con signo (o "0") justo después
+    const max = Math.max(60, 5 * w.pj);
+    const hasColon = rest.some((n) => n.gls);
+    if (!hasColon && rest[0] && rest[1] && rest[0].sign === null && rest[1].sign === null && rest[0].v != null && rest[1].v != null && rest[0].v <= max && rest[1].v <= max) {
+      // columnas GF y GC separadas
+      const gf2 = rest[0].v, gc2 = rest[1].v;
+      const d2 = rest[2] && rest[2].v != null && (rest[2].sign === 1 || rest[2].sign === -1) ? rest[2].sign * rest[2].v : null;
+      if (d2 != null && gf2 - gc2 !== d2) check = true;
+      const lastP = [...rest].reverse().find((n) => n.v != null && !n.gls);
+      if (lastP && rest.indexOf(lastP) > 1 && lastP !== rest[2] && lastP.v !== 3 * w.w + w.d) check = true;
+      return { team, pj: w.pj, g: w.w, e: w.d, p: w.l, gf: gf2, gc: gc2, check };
+    }
+    let diff = null, diffSignKnown = false, gi = 0;
+    if (rest[0] && !rest[0].gls && (rest[0].sign !== null || rest[0].v === 0 || (rest[1] && rest[1].v != null && rest[1].v > max))) {
+      diff = rest[0].v; diffSignKnown = rest[0].sign === 1 || rest[0].sign === -1 || rest[0].v === 0;
+      if (diff != null && rest[0].sign === -1) diff = -diff;
+      gi = 1;
+    }
+    // goles a favor / en contra
+    let gf = "", gc = "", gIdx = -1;
+    for (let j = gi; j < rest.length; j++) {
+      const n = rest[j];
+      if (n.gls) { [gf, gc] = n.gls; gIdx = j; if (diff != null && diffSignKnown && gf - gc !== diff) check = true; break; }
+      if (n.v != null && n.raw.length >= 2) {
+        const opts = [];
+        for (let c = 1; c < n.raw.length; c++) {
+          const A = n.raw.slice(0, c), B = n.raw.slice(c);
+          if ((A.length > 1 && A[0] === "0") || (B.length > 1 && B[0] === "0")) continue;
+          const x = Number(A), y = Number(B);
+          if (x <= max && y <= max) opts.push([x, y]);
+        }
+        const exact = opts.find(([x, y]) => diff != null && (diffSignKnown ? x - y === diff : Math.abs(x - y) === diff));
+        const pick = exact || (opts.length === 1 ? opts[0] : null);
+        if (pick) { [gf, gc] = pick; if (!exact) check = true; }
+        gIdx = j;
+        break;
+      }
+    }
+    if (gf === "" || gc === "") check = true;
+    // puntos (último número de la fila) para comprobar
+    const last = [...rest].reverse().find((n) => n.v != null && !n.gls);
+    if (last && rest.indexOf(last) > gIdx && last.v !== 3 * w.w + w.d) check = true;
+    return { team, pj: w.pj, g: w.w, e: w.d, p: w.l, gf, gc, check };
+  });
+}
+
+// Combina varias lecturas de la misma tabla: fila a fila se queda con la que cuadra
+function mergeReadings(list) {
+  const key = (t) => normTxt(t).replace(/[^a-z]/g, "");
+  const bigr = (x) => { const k = key(x), out = new Set(); for (let i = 0; i < k.length - 1; i++) out.add(k.slice(i, i + 2)); return out; };
+  const sim = (a, b) => { const A = bigr(a), B = bigr(b); if (!A.size || !B.size) return 0; let n = 0; A.forEach((x) => B.has(x) && n++); return (2 * n) / (A.size + B.size); };
+  const base = list.slice().sort((a, b) => b.length - a.length)[0] || [];
+  const nums = (r) => [r.pj, r.g, r.e, r.p, r.gf, r.gc].join(",");
+  return base.map((row) => {
+    const group = [row];
+    list.forEach((L) => { if (L === base) return; let best = null, bs = 0.5; L.forEach((r) => { const v = sim(r.team, row.team); if (v > bs) { bs = v; best = r; } }); if (best) group.push(best); });
+    const good = group.filter((r) => !r.check && r.pj !== "" && r.gf !== "" && r.gc !== "");
+    const pool = good.length ? good : group.filter((r) => r.pj !== "");
+    const count = {}; pool.forEach((r) => (count[nums(r)] = (count[nums(r)] || 0) + 1));
+    const top = pool.length ? Object.entries(count).sort((a, b) => b[1] - a[1])[0][0] : null;
+    const chosen = top ? pool.find((r) => nums(r) === top) : row;
+    const names = {}; group.forEach((r) => (names[r.team] = (names[r.team] || 0) + 1 + (r.team.includes(" ") ? 0.5 : 0)));
+    const team = Object.entries(names).sort((a, b) => b[1] - a[1])[0][0];
+    return { ...chosen, team, check: !good.length || chosen.check };
+  });
 }
 
 // Lee una foto o captura de la clasificación (OCR en el propio navegador, sin claves)
@@ -914,40 +1024,48 @@ function loadTesseract() {
   });
   return tessLoading;
 }
-function prepareImage(file) {
+function loadImageEl(file) {
   return new Promise((resolve, reject) => {
     const img = new Image(), url = URL.createObjectURL(file);
-    img.onload = () => {
-      const scale = Math.min(3, Math.max(1, 1800 / img.width));
-      const c = document.createElement("canvas");
-      c.width = Math.round(img.width * scale); c.height = Math.round(img.height * scale);
-      const ctx = c.getContext("2d");
-      ctx.imageSmoothingQuality = "high";
-      ctx.drawImage(img, 0, 0, c.width, c.height);
-      const d = ctx.getImageData(0, 0, c.width, c.height), px = d.data;
-      let sum = 0;
-      for (let i = 0; i < px.length; i += 4) { const g = 0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2]; px[i] = px[i + 1] = px[i + 2] = g; sum += g; }
-      const dark = sum / (px.length / 4) < 128;
-      let mn = 255, mx = 0;
-      for (let i = 0; i < px.length; i += 4) { let g = px[i]; if (dark) g = 255 - g; px[i] = g; if (g < mn) mn = g; if (g > mx) mx = g; }
-      const r = Math.max(1, mx - mn);
-      for (let i = 0; i < px.length; i += 4) { const g = ((px[i] - mn) * 255) / r; px[i] = px[i + 1] = px[i + 2] = g; }
-      ctx.putImageData(d, 0, 0);
-      URL.revokeObjectURL(url);
-      resolve(c);
-    };
+    img.onload = () => { URL.revokeObjectURL(url); resolve(img); };
     img.onerror = () => reject(new Error("La imagen no es válida."));
     img.src = url;
   });
 }
+// variantes: escala y binarizado distintos (cada una acierta en filas distintas)
+function prepareVariant(img, width, threshold) {
+  const scale = Math.min(4, Math.max(1, width / img.width));
+  const c = document.createElement("canvas");
+  c.width = Math.round(img.width * scale); c.height = Math.round(img.height * scale);
+  const ctx = c.getContext("2d");
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(img, 0, 0, c.width, c.height);
+  const d = ctx.getImageData(0, 0, c.width, c.height), px = d.data;
+  let sum = 0;
+  for (let i = 0; i < px.length; i += 4) { const g = 0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2]; px[i] = g; sum += g; }
+  const dark = sum / (px.length / 4) < 128;
+  let mn = 255, mx = 0;
+  for (let i = 0; i < px.length; i += 4) { let g = px[i]; if (dark) g = 255 - g; px[i] = g; if (g < mn) mn = g; if (g > mx) mx = g; }
+  const r = Math.max(1, mx - mn);
+  for (let i = 0; i < px.length; i += 4) {
+    let g = ((px[i] - mn) * 255) / r;
+    if (threshold) g = g > threshold ? 255 : 0;
+    px[i] = px[i + 1] = px[i + 2] = g;
+  }
+  ctx.putImageData(d, 0, 0);
+  return c;
+}
 async function readStandingsPhoto(file, onProgress) {
   const T = await loadTesseract();
-  const canvas = await prepareImage(file);
-  const worker = await T.createWorker("spa", 1, { logger: (m) => { if (m.status === "recognizing text") onProgress(Math.round(m.progress * 100)); } });
+  const img = await loadImageEl(file);
+  const variants = [[2700, 0], [2700, 150], [1800, 0]];
+  let step = 0;
+  const worker = await T.createWorker("spa", 1, { logger: (m) => { if (m.status === "recognizing text") onProgress(Math.round(((step + m.progress) / variants.length) * 100)); } });
   try {
     await worker.setParameters({ tessedit_pageseg_mode: "6", preserve_interword_spaces: "1" });
-    const { data } = await worker.recognize(canvas);
-    return data.text;
+    const texts = [];
+    for (const [w, th] of variants) { const { data } = await worker.recognize(prepareVariant(img, w, th)); texts.push(data.text); step++; }
+    return texts;
   } finally { await worker.terminate(); }
 }
 
@@ -1626,9 +1744,12 @@ document.addEventListener("click", async (e) => {
       const c = S.stEdit;
       if (c.source === "api" && (!c.league_id || !c.season)) { toast("Busca y elige una liga", true); break; }
       if (c.source === "manual" && !manualTable(c.rows).length) { toast("Añade al menos un equipo", true); break; }
+      const pend = c.source === "manual" ? (c.rows || []).filter((r) => r.team && (r.check || r.gf === "" || r.gc === "" || Number(r.pj) !== (Number(r.g) || 0) + (Number(r.e) || 0) + (Number(r.p) || 0))).length : 0;
+      if (pend && !S.stWarnAck) { S.stWarnAck = true; el.textContent = "Guardar igualmente"; toast(`Quedan ${pend} fila${pend === 1 ? "" : "s"} en rojo sin revisar. Revísalas o pulsa «Guardar igualmente»`, true); break; }
+      S.stWarnAck = false;
       const row = { category: c.category, source: c.source, league_id: c.source === "api" ? c.league_id : null, season: c.source === "api" ? c.season : null,
         league_name: c.source === "api" ? c.league_name : c.league_name || c.category, league_logo: c.source === "api" ? c.league_logo : null,
-        group_index: c.group_index || 0, team_name: c.team_name || null, rows: c.source === "manual" ? c.rows : [] };
+        group_index: c.group_index || 0, team_name: c.team_name || null, rows: c.source === "manual" ? c.rows.map(({ check, ...r }) => r) : [] };
       closeModal();
       S.stcat = c.category;
       await run(() => S.store.saveStanding(row), "Clasificación guardada");
@@ -1686,6 +1807,11 @@ document.addEventListener("click", async (e) => {
 
 document.addEventListener("input", (e) => {
   if (e.target.id === "uq") { S.uq = e.target.value; renderUsers(); return; }
+  if (e.target.closest && e.target.closest("#stm-body .stm-row")) {
+    const tr = e.target.closest(".stm-row"); tr.dataset.check = "0"; tr.classList.remove("warn");
+    if (!document.querySelector("#stm-body .stm-row.warn")) $(".stm-warn")?.remove();
+    return;
+  }
   if (e.target.closest && e.target.closest("#baseform")) {
     const n = [...document.querySelectorAll("#baseform tbody tr[data-id]")].filter((tr) => [...tr.querySelectorAll("input")].some((i) => String(Math.max(0, Math.floor(num(i.value) ?? 0))) !== i.dataset.orig)).length;
     $("#base-count").textContent = n ? `${n} jugador${n === 1 ? "" : "es"} con cambios` : "Sin cambios";
@@ -1727,7 +1853,7 @@ document.addEventListener("change", async (e) => {
     msg.textContent = "Preparando el lector… (la primera vez tarda unos segundos)";
     try {
       const text = await readStandingsPhoto(file, (pct) => { const m = $("#stc-photo-msg"); if (m) m.textContent = `Leyendo la imagen… ${pct}%`; });
-      const rows = parsePasted(text);
+      const rows = mergeReadings(text.map((t) => parsePasted(t)).filter((r) => r.length));
       if (!rows.length) { const m = $("#stc-photo-msg"); if (m) m.textContent = "No he podido leer equipos en esa imagen. Prueba con una captura más nítida, solo de la tabla."; return; }
       collectManual();
       S.stEdit.rows = rows;
