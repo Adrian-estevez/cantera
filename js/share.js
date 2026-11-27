@@ -2,6 +2,7 @@
 import { HANDLE } from "./config.js";
 import { age, fmtDate, fmtRating, initials, playerStats, result } from "./utils.js";
 import { arrange, defaultFormation, FORMATIONS, shortName } from "./lineup.js";
+import { scoreAt, clockLabel } from "./live.js";
 
 const W = 1080, H = 1350;
 const HEAD = "'Barlow Condensed', 'Arial Narrow', sans-serif";
@@ -621,5 +622,195 @@ export async function toStory(card, settings) {
   ctx.fillText(HANDLE.toUpperCase(), W / 2, cy + ch + 140);
   ctx.fillStyle = "rgba(255,255,255,.7)"; ctx.font = `500 30px ${BODY}`;
   ctx.fillText(`${s.site_title} · ${s.club_name}`, W / 2, cy + ch + 196);
+  return c;
+}
+
+
+// ---------------- Tarjetas de partido
+function crest(ctx, s, logo, label, x, y, r, isClub) {
+  ctx.save();
+  ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2);
+  ctx.fillStyle = isClub ? "rgba(255,255,255,.1)" : "rgba(255,255,255,.92)"; ctx.fill();
+  ctx.lineWidth = 6; ctx.strokeStyle = isClub ? s.accent_color : "rgba(255,255,255,.4)"; ctx.stroke();
+  if (isClub && logo) {
+    const k = Math.min((r * 1.35) / logo.width, (r * 1.35) / logo.height);
+    ctx.drawImage(logo, x - (logo.width * k) / 2, y - (logo.height * k) / 2, logo.width * k, logo.height * k);
+  } else {
+    ctx.fillStyle = isClub ? "#fff" : "#1b2430";
+    ctx.font = `700 ${Math.round(r * 0.7)}px ${HEAD}`;
+    ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText(initials(label), x, y + 3);
+  }
+  ctx.restore();
+}
+function teamName(ctx, name, x, y, maxW) {
+  ctx.fillStyle = "#fff"; ctx.textAlign = "center"; ctx.textBaseline = "top";
+  const t = String(name).toUpperCase();
+  fitText(ctx, t, maxW, 46);
+  ctx.fillText(t, x, y);
+}
+const sides = (m, s) => (m.venue === "Visitante" ? [{ n: m.rival, club: false }, { n: s.club_name, club: true }] : [{ n: s.club_name, club: true }, { n: m.rival, club: false }]);
+
+// Previa: día de partido
+export async function matchdayCard(m, data) {
+  await ready();
+  const s = data.settings;
+  const c = document.createElement("canvas"); c.width = W; c.height = H;
+  const ctx = c.getContext("2d");
+  base(ctx, s);
+  const logo = await loadImg(s.logo_url);
+  header(ctx, s, [m.category, m.competition].filter(Boolean).join(" · ") || "Próximo partido", logo);
+  ctx.textAlign = "center"; ctx.textBaseline = "top";
+  ctx.fillStyle = s.accent_color; fitText(ctx, "DÍA DE PARTIDO", W - 140, 120);
+  ctx.fillText("DÍA DE PARTIDO", W / 2, 180);
+  const [a, b] = sides(m, s);
+  crest(ctx, s, logo, a.n, 280, 520, 130, a.club);
+  crest(ctx, s, logo, b.n, W - 280, 520, 130, b.club);
+  ctx.fillStyle = "#fff"; ctx.font = `700 90px ${HEAD}`; ctx.textBaseline = "middle"; ctx.textAlign = "center";
+  ctx.fillText("VS", W / 2, 520);
+  teamName(ctx, a.n, 280, 680, 400);
+  teamName(ctx, b.n, W - 280, 680, 400);
+  // datos
+  ctx.fillStyle = "rgba(0,0,0,.3)"; roundRect(ctx, 60, 800, W - 120, 330, 26); ctx.fill();
+  ctx.textAlign = "center"; ctx.textBaseline = "top";
+  ctx.fillStyle = s.accent_color; ctx.font = `700 150px ${HEAD}`;
+  ctx.fillText(m.kickoff_time || "HOY", W / 2, 818);
+  ctx.fillStyle = "#fff"; ctx.font = `600 40px ${BODY}`;
+  const d = fmtDate(m.match_date, true);
+  ctx.fillText(d.charAt(0).toUpperCase() + d.slice(1), W / 2, 990);
+  ctx.fillStyle = "rgba(255,255,255,.75)"; ctx.font = `500 32px ${BODY}`;
+  ctx.fillText(m.venue === "Local" ? "Jugamos en casa" : m.venue === "Visitante" ? "Jugamos fuera" : "Campo neutral", W / 2, 1050);
+  footer(ctx, s);
+  return c;
+}
+
+// Marcador con goles y minutos (directo, descanso o final)
+export async function scoreCard(m, data, events, stateLabel) {
+  await ready();
+  const s = data.settings;
+  const pmap = new Map(data.players.map((p) => [p.id, p]));
+  const c = document.createElement("canvas"); c.width = W; c.height = H;
+  const ctx = c.getContext("2d");
+  base(ctx, s);
+  const logo = await loadImg(s.logo_url);
+  header(ctx, s, [m.category, m.competition].filter(Boolean).join(" · ") || "Marcador", logo);
+  const [a, b] = sides(m, s);
+  const home = m.venue !== "Visitante";
+  const gl = home ? m.goals_for : m.goals_against, gr = home ? m.goals_against : m.goals_for;
+  // estado
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  const live = /directo/i.test(stateLabel);
+  ctx.font = `700 40px ${HEAD}`;
+  const tw = ctx.measureText(stateLabel.toUpperCase()).width + 60;
+  ctx.fillStyle = live ? "#d8261b" : s.accent_color;
+  roundRect(ctx, W / 2 - tw / 2, 170, tw, 64, 14); ctx.fill();
+  ctx.fillStyle = live ? "#fff" : "#111";
+  ctx.fillText(stateLabel.toUpperCase(), W / 2, 204);
+  // escudos y marcador
+  crest(ctx, s, logo, a.n, 200, 420, 100, a.club);
+  crest(ctx, s, logo, b.n, W - 200, 420, 100, b.club);
+  ctx.fillStyle = "#fff"; ctx.font = `700 210px ${HEAD}`;
+  ctx.fillText(`${gl ?? 0}-${gr ?? 0}`, W / 2, 430);
+  teamName(ctx, a.n, 200, 540, 290);
+  teamName(ctx, b.n, W - 200, 540, 290);
+  // goles con minuto
+  const goals = events.filter((e) => e.type === "gol" || e.type === "gol_rival");
+  ctx.fillStyle = "rgba(0,0,0,.28)"; roundRect(ctx, 60, 660, W - 120, 470, 24); ctx.fill();
+  if (!goals.length) {
+    ctx.fillStyle = "rgba(255,255,255,.7)"; ctx.font = `500 36px ${BODY}`; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText(events.length ? "Sin goles todavía" : "Partido sin eventos registrados", W / 2, 895);
+  } else {
+    const room = stateLabel === "Final" && m.mvp_id ? 330 : 430;
+    const rh = Math.min(76, room / goals.length);
+    goals.slice(0, stateLabel === "Final" && m.mvp_id ? 6 : 8).forEach((e, i) => {
+      const y = 690 + i * rh + rh / 2;
+      const ours = e.type === "gol";
+      const leftSide = ours === home; // goles del equipo de la izquierda a la izquierda
+      const who = ours ? (e.player_id && pmap.get(e.player_id) ? pmap.get(e.player_id).name : s.club_name) : m.rival;
+      const txt = `${who}${ours && e.player2_id && pmap.get(e.player2_id) ? ` (${shortName(pmap.get(e.player2_id))})` : ""}`;
+      ctx.textBaseline = "middle";
+      ctx.fillStyle = s.accent_color; ctx.font = `700 ${Math.round(rh * 0.5)}px ${HEAD}`;
+      ctx.textAlign = "center"; ctx.fillText(e.minute != null ? `${e.minute}'` : "", W / 2, y);
+      ctx.fillStyle = ours ? "#fff" : "rgba(255,255,255,.7)"; ctx.font = `600 ${Math.round(rh * 0.42)}px ${BODY}`;
+      if (leftSide) { ctx.textAlign = "right"; fitText(ctx, txt, W / 2 - 160, Math.round(rh * 0.42), 600, BODY); ctx.fillText(txt, W / 2 - 70, y); }
+      else { ctx.textAlign = "left"; fitText(ctx, txt, W / 2 - 160, Math.round(rh * 0.42), 600, BODY); ctx.fillText(txt, W / 2 + 70, y); }
+    });
+  }
+  if (stateLabel === "Final" && m.mvp_id && pmap.has(m.mvp_id)) {
+    const mr = data.matchPlayers.find((x) => x.match_id === m.id && x.player_id === m.mvp_id);
+    ctx.fillStyle = s.accent_color; roundRect(ctx, 90, 1030, W - 180, 76, 14); ctx.fill();
+    ctx.fillStyle = "#111"; ctx.textBaseline = "middle"; ctx.textAlign = "left";
+    ctx.font = `700 30px ${HEAD}`; ctx.fillText("MVP", 120, 1069);
+    const n = pmap.get(m.mvp_id).name.toUpperCase();
+    fitText(ctx, n, W - 480, 40); ctx.fillText(n, 200, 1069);
+    if (mr && mr.rating != null && mr.rating !== "") { ctx.textAlign = "right"; ctx.font = `700 44px ${HEAD}`; ctx.fillText(fmtRating(mr.rating), W - 120, 1070); }
+  }
+  footer(ctx, s);
+  return c;
+}
+
+// ¡GOL! al momento
+export async function goalCard(m, data, ev, events) {
+  await ready();
+  const s = data.settings;
+  const p = data.players.find((x) => x.id === ev.player_id);
+  const ast = data.players.find((x) => x.id === ev.player2_id);
+  const c = document.createElement("canvas"); c.width = W; c.height = H;
+  const ctx = c.getContext("2d");
+  base(ctx, s);
+  header(ctx, s, [m.category, m.competition].filter(Boolean).join(" · ") || "Gol", await loadImg(s.logo_url));
+  ctx.textAlign = "center"; ctx.textBaseline = "top";
+  ctx.fillStyle = s.accent_color; fitText(ctx, "¡GOOOL!", W - 140, 190);
+  ctx.fillText("¡GOOOL!", W / 2, 160);
+  if (p) avatarCircle(ctx, await loadImg(p.photo_url), p, s, W / 2, 580, 190);
+  else { ctx.beginPath(); ctx.arc(W / 2, 580, 190, 0, Math.PI * 2); ctx.fillStyle = s.primary_color; ctx.fill(); }
+  // minuto
+  if (ev.minute != null) {
+    ctx.fillStyle = s.accent_color; ctx.beginPath(); ctx.arc(W / 2 + 160, 430, 70, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = "#111"; ctx.font = `700 64px ${HEAD}`; ctx.textBaseline = "middle"; ctx.fillText(`${ev.minute}'`, W / 2 + 160, 434);
+  }
+  ctx.textBaseline = "top"; ctx.fillStyle = "#fff";
+  const name = (p ? p.name : s.club_name).toUpperCase();
+  fitText(ctx, name, W - 120, 84); ctx.fillText(name, W / 2, 800);
+  if (ast) { ctx.fillStyle = "rgba(255,255,255,.8)"; ctx.font = `500 36px ${BODY}`; ctx.fillText(`Asistencia de ${ast.name}`, W / 2, 900); }
+  const [gf, ga] = scoreAt(events, ev);
+  const home = m.venue !== "Visitante";
+  const line = home ? `${s.club_name} ${gf}-${ga} ${m.rival}` : `${m.rival} ${ga}-${gf} ${s.club_name}`;
+  ctx.fillStyle = "rgba(0,0,0,.35)"; roundRect(ctx, 60, 980, W - 120, 130, 22); ctx.fill();
+  ctx.fillStyle = "#fff"; ctx.textBaseline = "middle";
+  fitText(ctx, line.toUpperCase(), W - 180, 64); ctx.fillText(line.toUpperCase(), W / 2, 1047);
+  footer(ctx, s);
+  return c;
+}
+
+// MVP del partido
+export async function mvpCard(m, data) {
+  await ready();
+  const s = data.settings;
+  const p = data.players.find((x) => x.id === m.mvp_id);
+  const r = data.matchPlayers.find((x) => x.match_id === m.id && x.player_id === m.mvp_id) || {};
+  const c = document.createElement("canvas"); c.width = W; c.height = H;
+  const ctx = c.getContext("2d");
+  base(ctx, s);
+  header(ctx, s, [m.category, m.competition].filter(Boolean).join(" · ") || "MVP", await loadImg(s.logo_url));
+  ctx.textAlign = "center"; ctx.textBaseline = "top";
+  ctx.fillStyle = s.accent_color; fitText(ctx, "MVP DEL PARTIDO", W - 140, 120);
+  ctx.fillText("MVP DEL PARTIDO", W / 2, 175);
+  avatarCircle(ctx, await loadImg(p.photo_url), p, s, W / 2, 530, 200);
+  if (r.rating != null && r.rating !== "") {
+    ctx.fillStyle = s.accent_color; roundRect(ctx, W / 2 + 110, 330, 170, 100, 22); ctx.fill();
+    ctx.fillStyle = "#111"; ctx.font = `700 76px ${HEAD}`; ctx.textBaseline = "middle"; ctx.fillText(fmtRating(r.rating), W / 2 + 195, 383);
+  }
+  ctx.textBaseline = "top"; ctx.fillStyle = "#fff";
+  fitText(ctx, p.name.toUpperCase(), W - 120, 84); ctx.fillText(p.name.toUpperCase(), W / 2, 760);
+  ctx.fillStyle = "rgba(255,255,255,.75)"; ctx.font = `500 34px ${BODY}`;
+  ctx.fillText([p.dorsal != null ? "#" + p.dorsal : null, p.detail_position || p.position].filter(Boolean).join(" · "), W / 2, 856);
+  const stats = [["Goles", r.goals || 0], ["Asist.", r.assists || 0], ["Minutos", r.minutes ?? "–"]];
+  const sw = (W - 120 - 40) / 3;
+  stats.forEach(([l, v], i) => stat(ctx, 60 + i * (sw + 20), 920, sw, v, l));
+  const home = m.venue !== "Visitante";
+  ctx.fillStyle = "rgba(255,255,255,.85)"; ctx.font = `600 32px ${BODY}`; ctx.textAlign = "center";
+  ctx.fillText((home ? `${s.club_name} ${m.goals_for}-${m.goals_against} ${m.rival}` : `${m.rival} ${m.goals_against}-${m.goals_for} ${s.club_name}`), W / 2, 1100);
+  footer(ctx, s);
   return c;
 }

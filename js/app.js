@@ -1,7 +1,7 @@
 import { createStore } from "./store.js";
 import { HANDLE } from "./config.js";
 import { esc, age, fmtDate, fmtRating, ratingClass, result, initials, num, today, resizeImage, playerStats, periodStats } from "./utils.js";
-import { playerCard, matchCard, lineupCard, rankingCard, idealCard, compareCard, toStory, canvasToBlob, playerCaption, matchCaption, lineupCaption } from "./share.js";
+import { playerCard, matchCard, lineupCard, matchdayCard, scoreCard, goalCard, mvpCard, rankingCard, idealCard, compareCard, toStory, canvasToBlob, playerCaption, matchCaption, lineupCaption } from "./share.js";
 import { FORMATIONS, FORMATION_NAMES, arrange, pitchHTML, defaultFormation, groupOf, detailLabels } from "./lineup.js";
 import { isLive, clockLabel, clockMinute, defaultHalf, eventsOf, currentXI, computeMinutes, scoreAt, ICONS, eventText, eventPost } from "./live.js";
 
@@ -423,8 +423,7 @@ function viewMatch(id) {
       <span class="board-foot">${foot}</span>
     </div>
     <div class="tools center">
-      ${ed && hasLineup ? `<button class="btn accent" data-act="card-lineup" data-id="${esc(id)}">${pend ? "Tarjeta del once" : "Tarjeta con notas"}</button>` : ""}
-      ${ed && !pend ? `<button class="btn ${hasLineup ? "ghost-light" : "accent"}" data-act="card-match" data-id="${esc(id)}">Tarjeta del resultado</button>` : ""}
+      ${ed ? `<button class="btn accent" data-act="card-menu" data-id="${esc(id)}">Tarjetas para redes</button>` : ""}
       ${ed ? `<button class="btn ghost-light" data-act="copy-match" data-id="${esc(id)}">Copiar texto</button>` : ""}
       ${ed ? `<button class="btn ghost-light" data-act="edit-match" data-id="${esc(id)}">${pend ? "Poner resultado" : "Editar datos"}</button>` : ""}${isAdmin() ? `<button class="btn ghost-light" data-act="del-match" data-id="${esc(id)}">Eliminar</button>` : ""}
     </div>
@@ -814,7 +813,7 @@ function timelineHTML(m, evs, editable) {
     const sc = ["gol", "gol_rival"].includes(e.type) ? `<span class="tl-sc">${m.venue === "Visitante" ? `${ga}-${gf}` : `${gf}-${ga}`}</span>` : "";
     return `<li class="ev ev-${esc(e.type)}"><span class="ev-min">${e.minute != null ? esc(e.minute) + "'" : ""}</span><span class="ev-ic">${ICONS[e.type] || ICONS.nota}</span>
       <span class="ev-tx">${eventText(e, pname, rival)} ${sc}</span>
-      ${editable ? `<span class="ev-act"><button class="link" data-act="ev-copy" data-id="${esc(e.id)}">Copiar</button>${e.type !== "estado" ? `<button class="x" data-act="ev-del" data-id="${esc(e.id)}" aria-label="Borrar evento">×</button>` : ""}</span>` : ""}</li>`;
+      ${editable ? `<span class="ev-act">${e.type === "gol" ? `<button class="link" data-act="card-goal" data-id="${esc(e.id)}">Tarjeta</button>` : ""}<button class="link" data-act="ev-copy" data-id="${esc(e.id)}">Copiar</button>${e.type !== "estado" ? `<button class="x" data-act="ev-del" data-id="${esc(e.id)}" aria-label="Borrar evento">×</button>` : ""}</span>` : ""}</li>`;
   }).join("")}</ol>`;
 }
 function livePanel(m) {
@@ -903,6 +902,50 @@ async function liveStatus(m, patch, label, minute) {
     await S.store.updateMatch(m.id, patch);
     if (label) await S.store.addEvent({ match_id: m.id, type: "estado", minute, body: label });
   }, label || "Actualizado");
+}
+
+
+function cardMenu(mid) {
+  const m = match(mid), evs = eventsOf(S.data, mid), live = isLive(m), pend = result(m) === "P" && !live;
+  const hasLineup = lineupRows(mid).some((r) => r.starter);
+  const item = (kind, title, sub, extra = "") => `<button class="cm" data-act="card-make" data-id="${esc(mid)}" data-kind="${kind}" ${extra}><b>${title}</b><span>${sub}</span></button>`;
+  const goals = evs.filter((e) => e.type === "gol");
+  const groups = [];
+  groups.push(["Antes del partido", [
+    item("previa", "Día de partido", `Rival, fecha${m.kickoff_time ? ", hora" : ""} y campo`),
+    hasLineup ? item("once", "Once inicial", "El once sobre el campo, sin notas") : "",
+  ]]);
+  if (live || evs.length) groups.push([live ? "En directo" : "Durante el partido", [
+    item("marcador", live ? (m.live_status === "descanso" ? "Descanso" : `Marcador en directo (${clockLabel(m)})`) : "Marcador con goles", "Resultado con goleadores y minutos"),
+    ...goals.map((e) => item("gol", `¡Gol! ${e.minute != null ? e.minute + "'" : ""}`, e.player_id ? pname(e.player_id) : "Gol", `data-ev="${esc(e.id)}"`)),
+  ]]);
+  if (!pend && !live) groups.push(["Después del partido", [
+    item("final", "Resultado final", evs.some((e) => e.type === "gol" || e.type === "gol_rival") ? "Marcador con goleadores y minutos" : "Marcador, MVP y mejores notas"),
+    hasLineup ? item("notas", "Notas del partido", "El once con la nota de cada jugador") : "",
+    m.mvp_id && player(m.mvp_id) ? item("mvp", "MVP del partido", pname(m.mvp_id)) : "",
+  ]]);
+  modal(`<h2>Tarjetas del partido</h2><p class="muted">Elige una. Después podrás descargarla como post o story.</p>
+    ${groups.map(([t, items]) => items.filter(Boolean).length ? `<h3>${t}</h3><div class="cm-list">${items.filter(Boolean).join("")}</div>` : "").join("")}
+    <div class="actions"><button class="btn ghost" data-act="close">Cerrar</button></div>`);
+}
+async function makeMatchCard(mid, kind, evId) {
+  const m = match(mid), evs = eventsOf(S.data, mid), f = `${m.match_date}-${slug(m.rival)}`;
+  if (kind === "previa") return downloadCanvas(await matchdayCard(m, S.data), `${f}-previa.png`);
+  if (kind === "once" || kind === "notas") {
+    const mm = kind === "once" ? { ...m, goals_for: null, goals_against: null } : m;
+    const data = kind === "once" ? { ...S.data, matchPlayers: S.data.matchPlayers.map((r) => (r.match_id === mid ? { ...r, rating: null, goals: 0 } : r)) } : S.data;
+    return downloadCanvas(await lineupCard(mm, data), `${f}-${kind}.png`);
+  }
+  if (kind === "marcador") {
+    const label = isLive(m) ? (m.live_status === "descanso" ? "Descanso" : `En directo · ${clockLabel(m)}`) : result(m) === "P" ? "Marcador" : "Final";
+    return downloadCanvas(await scoreCard(m, S.data, evs, label), `${f}-marcador.png`);
+  }
+  if (kind === "final") {
+    if (evs.some((e) => e.type === "gol" || e.type === "gol_rival")) return downloadCanvas(await scoreCard(m, S.data, evs, "Final"), `${f}-final.png`);
+    return downloadCanvas(await matchCard(m, S.data), `${f}-final.png`);
+  }
+  if (kind === "gol") { const ev = evs.find((e) => e.id === evId); if (ev) return downloadCanvas(await goalCard(m, S.data, ev, evs), `${f}-gol-${ev.minute ?? ""}.png`); }
+  if (kind === "mvp") return downloadCanvas(await mvpCard(m, S.data), `${f}-mvp.png`);
 }
 
 // ---- refresco en tiempo real
@@ -1231,6 +1274,9 @@ document.addEventListener("click", async (e) => {
       break;
     }
     case "card-fmt": showCard(el.dataset.v); break;
+    case "card-menu": cardMenu(id); break;
+    case "card-make": await makeMatchCard(id, el.dataset.kind, el.dataset.ev); break;
+    case "card-goal": { const ev = (S.data.events || []).find((e) => e.id === id); if (ev) await makeMatchCard(ev.match_id, "gol", id); break; }
     case "install": doInstall(); break;
     case "install-dismiss": lsSet("cantera_install_snooze", String(Date.now() + 14 * 864e5)); updateInstallUI(); break;
     case "ideal-card": {

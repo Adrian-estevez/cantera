@@ -560,6 +560,14 @@ th.n .sortb { width: 100%; text-align: right; }
 .steps { padding-left: 22px; display: grid; gap: 8px; font-size: 17px; }
 .kbd { display: inline-block; padding: 0 7px; border-radius: 6px; background: var(--soft); font-weight: 700; }
 
+/* ---------- menú de tarjetas ---------- */
+.cm-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.cm { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; padding: 12px 14px; min-height: 64px; border-radius: 12px; border: 1.5px solid var(--line); background: var(--soft); color: var(--ink); font: inherit; cursor: pointer; }
+.cm:hover, .cm:focus-visible { border-color: var(--club); }
+.cm b { font: 700 18px var(--head); }
+.cm span { font-size: 13px; color: var(--muted); }
+@media (max-width: 600px) { .cm-list { grid-template-columns: minmax(0, 1fr); } }
+
 /* ---------- responsive ---------- */
 @media (max-width: 1000px) {
   .grid3 { grid-template-columns: minmax(0, 1fr); }
