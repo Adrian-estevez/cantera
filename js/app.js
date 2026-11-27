@@ -417,23 +417,35 @@ function viewMatch(id) {
 }
 
 // ------------------------------------------------------------ estadísticas
-const SCOLS = [["dorsal", "#"], ["name", "Jugador"], ["pj", "PJ"], ["minutes", "Min"], ["goals", "Goles"], ["assists", "Asist."], ["yellow", "TA"], ["red", "TR"], ["avg", "Nota"], ["mvps", "MVP"]];
+const POS_ORDER = { Portero: 0, Defensa: 1, Centrocampista: 2, Delantero: 3 };
+const POS_SHORT = { Portero: "POR", Defensa: "DEF", Centrocampista: "MED", Delantero: "DEL" };
+const POS_GROUP = ["Porteros", "Defensas", "Centrocampistas", "Delanteros", "Sin posición"];
+const posIdx = (p) => POS_ORDER[p.position] ?? 4;
+const SCOLS = [["pos", "Pos"], ["dorsal", "#"], ["name", "Jugador"], ["pj", "PJ"], ["minutes", "Min"], ["goals", "Goles", "G"], ["assists", "Asist.", "A"], ["yellow", "TA"], ["red", "TR"], ["avg", "Nota"], ["mvps", "MVP"]];
 const BASE = [["base_pj", "PJ", "pj"], ["base_goals", "Goles", "goals"], ["base_assists", "Asist.", "assists"], ["base_yellow", "TA", "yellow"], ["base_red", "TR", "red"]];
 
 function viewStats() {
   const d = S.data, f = S.filters;
   const cat = f.scat ?? "";
-  const sort = S.ssort || { k: "goals", dir: -1 };
+  const sort = S.ssort || { k: "pos", dir: 1 };
   const editing = canEdit() && S.sedit;
   const cats = [...new Set([...d.settings.categories, ...d.players.map((p) => p.category).filter(Boolean)])];
   const list = d.players.filter((p) => p.status !== "Baja" && (!cat || p.category === cat))
     .map((p) => ({ p, st: playerStats(p.id, d) }));
-  const val = (x, k) => k === "name" ? x.p.name : k === "dorsal" ? (x.p.dorsal ?? 999) : (x.st[k] ?? -1);
+  const val = (x, k) => k === "name" ? x.p.name : k === "dorsal" ? (x.p.dorsal ?? 999) : k === "pos" ? posIdx(x.p) * 1000 + (x.p.dorsal ?? 999) : (x.st[k] ?? -1);
   list.sort((a, b) => {
     const va = val(a, sort.k), vb = val(b, sort.k);
     const c = typeof va === "string" ? va.localeCompare(vb) : va - vb;
     return c * sort.dir || (b.st.goals - a.st.goals) || a.p.name.localeCompare(b.p.name);
   });
+  // separadores por línea cuando se ordena por posición
+  const grouped = sort.k === "pos";
+  const withGroups = (cols, rowFn) => { let last = null; return list.map((x) => {
+    const g = posIdx(x.p);
+    const head = grouped && g !== last ? `<tr class="grp"><td colspan="${cols}">${POS_GROUP[g]}</td></tr>` : "";
+    last = g; return head + rowFn(x);
+  }).join(""); };
+  const z = (v) => (v ? v : `<span class="zero">0</span>`);
   const tot = list.reduce((t, x) => { ["pj", "goals", "assists", "yellow", "red"].forEach((k) => (t[k] += x.st[k])); return t; }, { pj: 0, goals: 0, assists: 0, yellow: 0, red: 0 });
   const chips = `<div class="chips" role="group" aria-label="Categoría">
       <button class="chip ${!cat ? "on" : ""}" data-act="fscat" data-v="">Todas</button>
@@ -447,31 +459,33 @@ function viewStats() {
     </section>
     <section class="band tight"><form id="baseform" class="panel">
       <table class="stack base"><thead><tr><th>Jugador</th>${BASE.map(([, l]) => `<th class="n">${l}</th>`).join("")}</tr></thead><tbody>
-      ${list.map(({ p, st }) => `<tr data-id="${esc(p.id)}"><td><span class="who">${avatar(p, "xs")}<span><small>${esc(p.dorsal ?? "")}</small> ${esc(p.name)}</span></span></td>
-        ${BASE.map(([k, l, rk]) => `<td class="n"><input type="number" min="0" max="999" inputmode="numeric" name="${k}" value="${esc(Number(p[k]) || 0)}" aria-label="${l} previos de ${esc(p.name)}" data-orig="${esc(Number(p[k]) || 0)}">${st.reg[rk] ? `<small class="plus" title="En partidos registrados">+${st.reg[rk]}</small>` : ""}</td>`).join("")}</tr>`).join("") || `<tr><td>No hay jugadores en esta categoría.</td></tr>`}
+      ${withGroups(6, ({ p, st }) => `<tr data-id="${esc(p.id)}"><td><span class="who">${avatar(p, "xs")}<span><small>${esc(p.dorsal ?? "")}</small> ${esc(p.name)}</span></span></td>
+        ${BASE.map(([k, l, rk]) => `<td class="n"><input type="number" min="0" max="999" inputmode="numeric" name="${k}" value="${esc(Number(p[k]) || 0)}" aria-label="${l} previos de ${esc(p.name)}" data-orig="${esc(Number(p[k]) || 0)}">${st.reg[rk] ? `<small class="plus" title="En partidos registrados">+${st.reg[rk]}</small>` : ""}</td>`).join("")}</tr>`) || `<tr><td>No hay jugadores en esta categoría.</td></tr>`}
       </tbody></table>
       <div class="savebar"><span class="muted" id="base-count">Sin cambios</span><button type="button" class="btn ghost" data-act="sedit-off">Cancelar</button><button class="btn">Guardar cifras</button></div>
     </form></section>`;
   }
 
-  const th = (k, l) => `<th class="${["name", "dorsal"].includes(k) ? "" : "n"}"><button class="sortb ${sort.k === k ? "on" : ""}" data-act="ssort" data-v="${k}" aria-label="Ordenar por ${l}">${l}${sort.k === k ? (sort.dir < 0 ? " ↓" : " ↑") : ""}</button></th>`;
+  const th = (k, l, sh) => `<th class="${["name", "pos"].includes(k) ? "" : "n"} c-${k}"><button class="sortb ${sort.k === k ? "on" : ""}" data-act="ssort" data-v="${k}" aria-label="Ordenar por ${l}">${sh ? `<span class="lg">${l}</span><span class="sh">${sh}</span>` : l}${sort.k === k ? (sort.dir < 0 ? "↓" : "↑") : ""}</button></th>`;
   return `<section class="band page-h">
     <div class="row-between"><h1>Estadísticas</h1>${canEdit() ? `<button class="btn" data-act="sedit-on">Editar cifras previas</button>` : ""}</div>
-    <div class="kpis light">
+    <div class="kpis-wrap"><div class="kpis light">
       <div><b>${tot.goals}</b><span>Goles</span></div><div><b>${tot.assists}</b><span>Asistencias</span></div>
       <div><b>${tot.yellow}</b><span>Amarillas</span></div><div><b>${tot.red}</b><span>Rojas</span></div>
-    </div>
+    </div></div>
     ${chips}
   </section>
   <section class="band tight"><div class="panel">
-    <div class="scroll"><table class="stats"><thead><tr>${SCOLS.map(([k, l]) => th(k, l)).join("")}</tr></thead><tbody>
-    ${list.map(({ p, st }) => `<tr>
-      <td class="n dim">${esc(p.dorsal ?? "")}</td>
-      <td><a class="who" href="#/jugador/${esc(p.id)}">${avatar(p, "xs")}<span>${esc(p.name)}<small class="muted"> ${esc(p.category || "")}</small></span></a></td>
-      <td class="n">${st.pj}</td><td class="n dim">${st.minutes || ""}</td>
-      <td class="n strong">${st.goals || ""}</td><td class="n">${st.assists || ""}</td>
-      <td class="n">${st.yellow ? `<span class="card-y"></span> ${st.yellow}` : ""}</td><td class="n">${st.red ? `<span class="card-r"></span> ${st.red}` : ""}</td>
-      <td class="n">${st.avg != null ? `<span class="rt ${ratingClass(st.avg)}">${fmtRating(st.avg)}</span>` : ""}</td><td class="n">${st.mvps || ""}</td></tr>`).join("") || `<tr><td colspan="10" class="empty">No hay jugadores en esta categoría.</td></tr>`}
+    ${sort.k !== "pos" ? `<button class="btn small ghost resort" data-act="ssort-pos">Volver a ordenar por posición</button>` : ""}
+    <div class="scroll"><table class="stats"><thead><tr>${SCOLS.map(([k, l, sh]) => th(k, l, sh)).join("")}</tr></thead><tbody>
+    ${withGroups(11, ({ p, st }) => `<tr>
+      <td class="c-pos"><span class="pos-tag pos-${posIdx(p)}">${esc(POS_SHORT[p.position] || "–")}</span></td>
+      <td class="n dim c-dorsal">${esc(p.dorsal ?? "")}</td>
+      <td><a class="who" href="#/jugador/${esc(p.id)}">${avatar(p, "xs")}<span>${esc(p.name)}<small class="muted cat"> ${esc(p.category || "")}</small></span></a></td>
+      <td class="n">${z(st.pj)}</td><td class="n dim c-minutes">${z(st.minutes)}</td>
+      <td class="n strong">${z(st.goals)}</td><td class="n">${z(st.assists)}</td>
+      <td class="n">${st.yellow ? `<span class="card-y"></span> ${st.yellow}` : z(0)}</td><td class="n">${st.red ? `<span class="card-r"></span> ${st.red}` : z(0)}</td>
+      <td class="n">${st.avg != null ? `<span class="rt ${ratingClass(st.avg)}">${fmtRating(st.avg)}</span>` : `<span class="zero">–</span>`}</td><td class="n c-mvps">${z(st.mvps)}</td></tr>`) || `<tr><td colspan="11" class="empty">No hay jugadores en esta categoría.</td></tr>`}
     </tbody></table></div>
     <p class="muted small">Incluye las cifras previas apuntadas a mano y los partidos registrados en la web. Minutos y nota solo cuentan partidos registrados.</p>
   </div></section>`;
@@ -808,7 +822,8 @@ document.addEventListener("click", async (e) => {
     case "fcat": S.filters.cat = el.dataset.v; render(); break;
     case "fmcat": S.filters.mcat = el.dataset.v; render(); break;
     case "fscat": S.filters.scat = el.dataset.v; render(); break;
-    case "ssort": { const k = el.dataset.v, cur = S.ssort || { k: "goals", dir: -1 }; S.ssort = { k, dir: cur.k === k ? -cur.dir : (["name", "dorsal"].includes(k) ? 1 : -1) }; render(); break; }
+    case "ssort": { const k = el.dataset.v, cur = S.ssort || { k: "pos", dir: 1 }; S.ssort = { k, dir: cur.k === k ? -cur.dir : (["name", "dorsal", "pos"].includes(k) ? 1 : -1) }; render(); break; }
+    case "ssort-pos": S.ssort = { k: "pos", dir: 1 }; render(); break;
     case "sedit-on": S.sedit = true; render(); break;
     case "sedit-off": S.sedit = false; render(); break;
     case "new-player": playerForm(); break;
