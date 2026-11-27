@@ -1,7 +1,8 @@
 import { createStore } from "./store.js";
 import { HANDLE } from "./config.js";
 import { esc, age, fmtDate, fmtRating, ratingClass, result, initials, num, today, resizeImage, playerStats } from "./utils.js";
-import { playerCard, matchCard, canvasToBlob, playerCaption, matchCaption } from "./share.js";
+import { playerCard, matchCard, lineupCard, canvasToBlob, playerCaption, matchCaption, lineupCaption } from "./share.js";
+import { FORMATIONS, FORMATION_NAMES, arrange, pitchHTML, defaultFormation, groupOf } from "./lineup.js";
 
 const POSITIONS = ["Portero", "Defensa", "Centrocampista", "Delantero"];
 const FEET = ["Diestro", "Zurdo", "Ambidiestro"];
@@ -21,6 +22,7 @@ const main = $("#main");
 const safeImg = (u) => (typeof u === "string" && (/^https:\/\//.test(u) || /^data:image\//.test(u)) ? u : "");
 const player = (id) => S.data.players.find((p) => p.id === id);
 const match = (id) => S.data.matches.find((m) => m.id === id);
+const shortNameOf = (pid) => { const p = player(pid); return p ? (p.nickname || p.name.split(" ")[0]) : ""; };
 const opts = (list, sel, empty) =>
   (empty != null ? `<option value="">${esc(empty)}</option>` : "") +
   list.map((v) => `<option ${v === sel ? "selected" : ""}>${esc(v)}</option>`).join("");
@@ -32,7 +34,7 @@ function avatar(p, cls = "") {
     : `<span class="ava ava-empty ${cls}" aria-hidden="true">${esc(initials(p.name))}</span>`;
 }
 function scoreText(m) {
-  if (result(m) === "P") return "–";
+  if (result(m) === "P") return m.kickoff_time || "VS";
   return m.venue === "Visitante" ? `${m.goals_against}-${m.goals_for}` : `${m.goals_for}-${m.goals_against}`;
 }
 function teams(m) {
@@ -131,6 +133,9 @@ function viewHome() {
   const gf = played.reduce((a, m) => a + Number(m.goals_for || 0), 0);
   const ga = played.reduce((a, m) => a + Number(m.goals_against || 0), 0);
   const last = played[0];
+  const upcoming = d.matches.filter((m) => result(m) === "P" && m.match_date >= today())
+    .sort((a, b) => (a.match_date + (a.kickoff_time || "")).localeCompare(b.match_date + (b.kickoff_time || "")));
+  const next = upcoming[0];
   const active = d.players.filter((p) => p.status !== "Baja");
 
   const ranked = active.map((p) => ({ p, st: playerStats(p.id, d) }));
@@ -138,13 +143,20 @@ function viewHome() {
   const best = ranked.filter((x) => x.st.avg != null && x.st.pj >= 2).sort((a, b) => b.st.avg - a.st.avg).slice(0, 5);
   const featured = active.filter((p) => p.featured);
 
-  const lastCard = last
+  const nextCard = next
+    ? `<a class="board" href="#/partido/${esc(next.id)}">
+        <span class="board-tag">Próximo partido · ${esc(m_meta(next))}</span>
+        <span class="board-row"><span class="board-team">${esc(teams(next)[0])}</span><span class="board-score time">${esc(scoreText(next))}</span><span class="board-team r">${esc(teams(next)[1])}</span></span>
+        <span class="board-foot">${esc(fmtDate(next.match_date, true))}${next.competition ? ` · ${esc(next.competition)}` : ""}</span><span class="board-foot"><b>${lineupRows(next.id).some((r) => r.starter) ? "Ver el once" : "Once por confirmar"}</b></span>
+      </a>`
+    : "";
+  const lastCard = nextCard || (last
     ? `<a class="board" href="#/partido/${esc(last.id)}">
         <span class="board-tag">Último partido · ${esc(m_meta(last))}</span>
         <span class="board-row"><span class="board-team">${esc(teams(last)[0])}</span><span class="board-score">${esc(scoreText(last))}</span><span class="board-team r">${esc(teams(last)[1])}</span></span>
         <span class="board-foot"><span class="res res-${result(last)}">${RES_LABEL[result(last)]}</span>${last.mvp_id && player(last.mvp_id) ? ` MVP: <b>${esc(player(last.mvp_id).name)}</b>` : ""}</span>
       </a>`
-    : `<div class="board empty-board"><span class="board-tag">Aún no hay partidos</span><span class="board-score">0-0</span>${canEdit() ? `<button class="btn" data-act="new-match">Añadir el primero</button>` : ""}</div>`;
+    : `<div class="board empty-board"><span class="board-tag">Aún no hay partidos</span><span class="board-score">0-0</span>${canEdit() ? `<button class="btn" data-act="new-match">Añadir el primero</button>` : ""}</div>`);
 
   return `
   <section class="hero band">
@@ -165,8 +177,8 @@ function viewHome() {
   </section>
   <section class="band grid3">
     <div class="panel">
-      <div class="panel-h"><h2>Últimos resultados</h2><a href="#/partidos">Ver todos</a></div>
-      ${d.matches.slice(0, 5).map(matchRow).join("") || `<p class="empty">Sin partidos todavía.</p>`}
+      ${upcoming.length ? `<div class="panel-h"><h2>Próximos</h2><a href="#/partidos">Ver todos</a></div>${upcoming.slice(0, 3).map(matchRow).join("")}<div class="panel-h sp"><h2>Últimos resultados</h2></div>` : `<div class="panel-h"><h2>Últimos resultados</h2><a href="#/partidos">Ver todos</a></div>`}
+      ${played.slice(0, 5).map(matchRow).join("") || `<p class="empty">Sin resultados todavía.</p>`}
     </div>
     <div class="panel">
       <div class="panel-h"><h2>Goleadores</h2></div>
@@ -327,6 +339,8 @@ function drawTrend(id) {
 function viewMatches() {
   const d = S.data, f = S.filters;
   const list = d.matches.filter((m) => !f.mcat || m.category === f.mcat);
+  const upcoming = list.filter((m) => result(m) === "P").sort((a, b) => (a.match_date + (a.kickoff_time || "")).localeCompare(b.match_date + (b.kickoff_time || "")));
+  const played = list.filter((m) => result(m) !== "P");
   const cats = [...new Set([...d.settings.categories, ...d.matches.map((m) => m.category).filter(Boolean)])];
   return `
   <section class="band page-h">
@@ -336,40 +350,68 @@ function viewMatches() {
       ${cats.map((c) => `<button class="chip ${f.mcat === c ? "on" : ""}" data-act="fmcat" data-v="${esc(c)}">${esc(c)}</button>`).join("")}
     </div>
   </section>
-  <section class="band tight"><div class="panel">${list.map(matchRow).join("") || `<p class="empty">No hay partidos registrados.</p>`}</div></section>`;
+  <section class="band tight two-eq">
+    <div class="panel"><div class="panel-h"><h2>Próximos</h2></div>${upcoming.map(matchRow).join("") || `<p class="empty">No hay partidos programados.${canEdit() ? " Crea el siguiente con «+ Nuevo partido»." : ""}</p>`}</div>
+    <div class="panel"><div class="panel-h"><h2>Jugados</h2></div>${played.map(matchRow).join("") || `<p class="empty">Aún no hay resultados.</p>`}</div>
+  </section>`;
 }
+
+const lineupRows = (mid) => S.data.matchPlayers.filter((x) => x.match_id === mid).map((x) => ({ ...x }));
+const formationOf = (m) => (m.formation && FORMATIONS[m.formation] ? m.formation : defaultFormation(m.category));
 
 function viewMatch(id) {
   const m = match(id);
   if (!m) return notFound("Este partido no existe o fue eliminado.");
-  const r = result(m), [a, b] = teams(m);
-  const rows = S.data.matchPlayers.filter((x) => x.match_id === id).map((x) => ({ ...x, p: player(x.player_id) })).filter((x) => x.p);
-  const starters = rows.filter((x) => x.starter), subs = rows.filter((x) => !x.starter);
-  const table = (title, list) => list.length ? `<h3>${title}</h3><table class="stack lineup"><thead><tr><th>Jugador</th><th class="n">Min</th><th class="n">G</th><th class="n">A</th><th class="n">Nota</th><th>Comentario</th></tr></thead><tbody>
-    ${list.map((x) => `<tr><td><a class="who" href="#/jugador/${esc(x.p.id)}">${avatar(x.p, "xs")}<span><small>${esc(x.p.dorsal ?? "")}</small> ${esc(x.p.name)}</span></a>${m.mvp_id === x.p.id ? ` <span class="mvp">MVP</span>` : ""}</td>
-      <td class="n">${esc(x.minutes ?? "")}</td><td class="n">${esc(x.goals || "")}</td><td class="n">${esc(x.assists || "")}</td>
-      <td class="n"><span class="rt ${ratingClass(x.rating)}">${fmtRating(x.rating)}</span></td><td>${esc(x.note || "")}${x.yellow ? ` <span class="card-y"></span>` : ""}${x.red ? ` <span class="card-r"></span>` : ""}</td></tr>`).join("")}
-    </tbody></table>` : "";
+  const r = result(m), pend = r === "P", [a, b] = teams(m);
+  const formation = formationOf(m);
+  const arr = arrange(lineupRows(id), formation, player);
+  const ed = canEdit();
+  const mode = (S.lmode && S.lmode[id]) || (pend ? "pick" : "rate");
+  const { pitch, bench } = pitchHTML(arr, player, { editable: ed, mode, mvp: m.mvp_id, photo: (p) => safeImg(p.photo_url) });
+  const hasLineup = arr.rows.length > 0;
+  const foot = pend
+    ? `<span class="res res-P">Próximo partido</span> ${esc(fmtDate(m.match_date, true))}${m.kickoff_time ? ` · ${esc(m.kickoff_time)} h` : ""} · ${esc(m.venue)}`
+    : `<span class="res res-${r}">${RES_LABEL[r]}</span> ${esc(fmtDate(m.match_date, true))} · ${esc(m.venue)}`;
+  const rated = arr.rows.filter((x) => x.rating != null && x.rating !== "");
+  const avg = rated.length ? rated.reduce((s, x) => s + Number(x.rating), 0) / rated.length : null;
   return `
   <section class="hero band">
     <a class="back light" href="#/partidos">← Partidos</a>
     <div class="board big">
       <span class="board-tag">${esc([m.category, m.competition].filter(Boolean).join(" · "))}</span>
-      <span class="board-row"><span class="board-team">${esc(a)}</span><span class="board-score">${esc(scoreText(m))}</span><span class="board-team r">${esc(b)}</span></span>
-      <span class="board-foot"><span class="res res-${r}">${RES_LABEL[r]}</span> ${esc(fmtDate(m.match_date, true))} · ${esc(m.venue)}</span>
+      <span class="board-row"><span class="board-team">${esc(a)}</span><span class="board-score${pend ? " time" : ""}">${esc(scoreText(m))}</span><span class="board-team r">${esc(b)}</span></span>
+      <span class="board-foot">${foot}</span>
     </div>
     <div class="tools center">
-      <button class="btn accent" data-act="card-match" data-id="${esc(id)}">Tarjeta para redes</button>
+      ${hasLineup ? `<button class="btn accent" data-act="card-lineup" data-id="${esc(id)}">${pend ? "Tarjeta del once" : "Tarjeta con notas"}</button>` : ""}
+      ${pend ? "" : `<button class="btn ${hasLineup ? "ghost-light" : "accent"}" data-act="card-match" data-id="${esc(id)}">Tarjeta del resultado</button>`}
       <button class="btn ghost-light" data-act="copy-match" data-id="${esc(id)}">Copiar texto</button>
-      ${canEdit() ? `<button class="btn ghost-light" data-act="edit-match" data-id="${esc(id)}">Editar</button>` : ""}${isAdmin() ? `<button class="btn ghost-light" data-act="del-match" data-id="${esc(id)}">Eliminar</button>` : ""}
+      ${ed ? `<button class="btn ghost-light" data-act="edit-match" data-id="${esc(id)}">${pend ? "Poner resultado" : "Editar datos"}</button>` : ""}${isAdmin() ? `<button class="btn ghost-light" data-act="del-match" data-id="${esc(id)}">Eliminar</button>` : ""}
     </div>
   </section>
-  <section class="band two">
-    <div class="panel">${table("Titulares", starters)}${table("Suplentes", subs)}${rows.length ? "" : `<p class="empty">No se registraron jugadores en este partido.</p>`}</div>
-    <div class="panel"><div class="panel-h"><h2>Crónica y valoración</h2></div>
-      ${m.notes ? `<p class="chron">${esc(m.notes)}</p>` : `<p class="empty">Sin crónica.</p>`}
-      ${m.mvp_id && player(m.mvp_id) ? `<a class="mvpbox" href="#/jugador/${esc(m.mvp_id)}">${avatar(player(m.mvp_id), "sm")}<span><small>MVP del partido</small><b>${esc(player(m.mvp_id).name)}</b></span></a>` : ""}
+  <section class="band matchday">
+    <div class="pitch-wrap">
+      ${ed ? `<div class="lbar">
+        <div class="seg" role="tablist" aria-label="Modo">
+          <button role="tab" aria-selected="${mode === "pick"}" class="${mode === "pick" ? "on" : ""}" data-act="lmode" data-id="${esc(id)}" data-v="pick">Alineación</button>
+          <button role="tab" aria-selected="${mode === "rate"}" class="${mode === "rate" ? "on" : ""}" data-act="lmode" data-id="${esc(id)}" data-v="rate">Puntuar</button>
+        </div>
+        <label class="fsel">Sistema<select id="formation-sel" data-id="${esc(id)}">${FORMATION_NAMES.map((f) => `<option ${f === formation ? "selected" : ""}>${esc(f)}</option>`).join("")}</select></label>
+      </div>
+      <p class="lhelp">${mode === "pick" ? "Toca una posición del campo para elegir al jugador. Toca a uno ya colocado para cambiarlo o mandarlo al banquillo." : "Toca a cualquier jugador (también del banquillo) para ponerle nota, goles, asistencias y tarjetas."}</p>` : `<p class="lhelp">${esc(formation)}</p>`}
+      ${hasLineup || ed ? pitch : `<div class="panel"><p class="empty">Todavía no se ha publicado el once de este partido.</p></div>`}
     </div>
+    <aside class="side">
+      <div class="panel">
+        <div class="panel-h"><h2>Banquillo</h2>${ed && mode === "pick" ? `<span class="row-gap"><button class="btn small ghost" data-act="bench-add" data-id="${esc(id)}">+ Añadir</button><button class="btn small ghost" data-act="call-all" data-id="${esc(id)}">Convocar categoría</button></span>` : ""}</div>
+        <div class="bench">${bench || `<p class="empty">${ed && mode === "pick" ? "Añade suplentes o convoca a toda la categoría." : "Sin suplentes."}</p>`}</div>
+      </div>
+      ${!pend && avg != null ? `<div class="panel teamavg"><span>Nota media del equipo</span><b class="rt ${ratingClass(avg)}">${fmtRating(avg)}</b><small class="muted">${rated.length} jugadores puntuados</small></div>` : ""}
+      ${m.mvp_id && player(m.mvp_id) ? `<a class="mvpbox" href="#/jugador/${esc(m.mvp_id)}">${avatar(player(m.mvp_id), "sm")}<span><small>MVP del partido</small><b>${esc(player(m.mvp_id).name)}</b></span></a>` : ""}
+      <div class="panel"><div class="panel-h"><h2>${pend ? "Previa" : "Crónica y valoración"}</h2></div>
+        ${m.notes ? `<p class="chron">${esc(m.notes)}</p>` : `<p class="empty">${pend ? "Sin previa todavía." : "Sin crónica."}</p>`}
+      </div>
+    </aside>
   </section>`;
 }
 
@@ -426,59 +468,90 @@ function playerForm(p = {}) {
   </form>`, true);
 }
 
-function lineupRow(l, p) {
-  return `<tr data-pid="${esc(p.id)}">
-    <td class="lu-name"><small>${esc(p.dorsal ?? "")}</small> ${esc(p.name)}</td>
-    <td><input type="checkbox" name="starter" ${l.starter !== false ? "checked" : ""} aria-label="Titular"></td>
-    <td><input type="number" name="minutes" min="0" max="130" value="${esc(l.minutes ?? 90)}" aria-label="Minutos"></td>
-    <td><input type="number" name="goals" min="0" value="${esc(l.goals || 0)}" aria-label="Goles"></td>
-    <td><input type="number" name="assists" min="0" value="${esc(l.assists || 0)}" aria-label="Asistencias"></td>
-    <td><input type="number" name="yellow" min="0" max="2" value="${esc(l.yellow || 0)}" aria-label="Amarillas"></td>
-    <td><input type="number" name="red" min="0" max="1" value="${esc(l.red || 0)}" aria-label="Rojas"></td>
-    <td><input type="number" name="rating" min="0" max="10" step="0.5" value="${esc(l.rating ?? "")}" aria-label="Nota"></td>
-    <td><input name="note" value="${esc(l.note || "")}" placeholder="Comentario" aria-label="Comentario"></td>
-    <td><button type="button" class="x" data-act="lu-remove" aria-label="Quitar">×</button></td></tr>`;
-}
-
 function matchForm(m = {}) {
   const cats = S.data.settings.categories;
-  const rows = m.id ? S.data.matchPlayers.filter((x) => x.match_id === m.id) : [];
-  modal(`<h2>${m.id ? "Editar partido" : "Nuevo partido"}</h2>
+  const isNew = !m.id;
+  const cat = m.category || S.filters.mcat || cats[0];
+  modal(`<h2>${isNew ? "Nuevo partido" : result(m) === "P" ? "Poner resultado / editar" : "Editar partido"}</h2>
+  ${isNew ? `<p class="muted">Créalo antes de jugarse. Después podrás montar el once en el campo y, al terminar, poner el resultado y las notas.</p>` : ""}
   <form id="matchform" class="form" data-id="${esc(m.id || "")}">
-    <div class="frow"><label>Fecha *<input type="date" name="match_date" value="${esc(m.match_date || today())}" required></label>
-    <label>Categoría<select name="category" id="mf-cat">${opts(cats, m.category || S.filters.mcat || cats[0])}</select></label>
-    <label>Competición<input name="competition" value="${esc(m.competition || "")}" placeholder="Liga, Copa, amistoso…"></label></div>
     <div class="frow"><label class="grow">Rival *<input name="rival" value="${esc(m.rival || "")}" required></label>
-    <label>Campo<select name="venue">${opts(["Local", "Visitante", "Neutral"], m.venue || "Local")}</select></label>
-    <label class="w-s">Goles nuestros<input type="number" name="goals_for" min="0" value="${esc(m.goals_for ?? "")}"></label>
-    <label class="w-s">Goles rival<input type="number" name="goals_against" min="0" value="${esc(m.goals_against ?? "")}"></label></div>
-    <label>Crónica y valoraciones importantes<textarea name="notes" rows="3">${esc(m.notes || "")}</textarea></label>
-    <h3>Jugadores y notas</h3>
-    <div class="frow"><select id="lu-add" aria-label="Añadir jugador"></select>
-      <button type="button" class="btn ghost small" data-act="lu-add">Añadir</button>
-      <button type="button" class="btn ghost small" data-act="lu-all">Añadir toda la categoría</button></div>
-    <div class="scroll"><table class="lu"><thead><tr><th>Jugador</th><th>Tit.</th><th>Min</th><th>G</th><th>A</th><th>TA</th><th>TR</th><th>Nota</th><th>Comentario</th><th></th></tr></thead>
-      <tbody id="lu-body">${rows.map((l) => (player(l.player_id) ? lineupRow(l, player(l.player_id)) : "")).join("")}</tbody></table></div>
-    <label>MVP<select name="mvp_id" id="mf-mvp"></select></label>
-    <div class="actions"><button type="button" class="btn ghost" data-act="close">Cancelar</button><button class="btn">Guardar partido</button></div>
+    <label>Campo<select name="venue">${opts(["Local", "Visitante", "Neutral"], m.venue || "Local")}</select></label></div>
+    <div class="frow"><label>Fecha *<input type="date" name="match_date" value="${esc(m.match_date || today())}" required></label>
+    <label class="w-s">Hora<input type="time" name="kickoff_time" value="${esc(m.kickoff_time || "")}"></label>
+    <label>Categoría<select name="category" id="mf-cat">${opts(cats.includes(cat) || !cat ? cats : [...cats, cat], cat)}</select></label></div>
+    <div class="frow"><label class="grow">Competición<input name="competition" value="${esc(m.competition || "")}" placeholder="Liga, Copa, amistoso…"></label>
+    <label>Sistema<select name="formation" id="mf-formation">${FORMATION_NAMES.map((f) => `<option ${f === formationOf({ ...m, category: cat }) ? "selected" : ""}>${esc(f)}</option>`).join("")}</select></label></div>
+    <fieldset class="resbox"><legend>Resultado <small>(déjalo vacío si aún no se ha jugado)</small></legend>
+      <div class="frow"><label class="w-s">Goles nuestros<input type="number" name="goals_for" min="0" inputmode="numeric" value="${esc(m.goals_for ?? "")}"></label>
+      <label class="w-s">Goles rival<input type="number" name="goals_against" min="0" inputmode="numeric" value="${esc(m.goals_against ?? "")}"></label></div>
+    </fieldset>
+    <label>${isNew ? "Previa / notas" : "Crónica y valoraciones importantes"}<textarea name="notes" rows="3">${esc(m.notes || "")}</textarea></label>
+    <div class="actions"><button type="button" class="btn ghost" data-act="close">Cancelar</button><button class="btn">${isNew ? "Crear y montar el once" : "Guardar"}</button></div>
   </form>`, true);
-  refreshLineupSelects(m.mvp_id);
-  $("#mf-cat").addEventListener("change", () => refreshLineupSelects());
+  if (isNew) $("#mf-cat").addEventListener("change", (e) => { $("#mf-formation").value = defaultFormation(e.target.value); });
 }
 
-function refreshLineupSelects(mvp) {
-  const body = $("#lu-body");
-  if (!body) return;
-  const inIds = [...body.querySelectorAll("tr")].map((t) => t.dataset.pid);
-  const cat = $("#mf-cat").value;
-  const avail = S.data.players.filter((p) => !inIds.includes(p.id) && p.status !== "Baja")
-    .sort((a, b) => (a.category === cat ? 0 : 1) - (b.category === cat ? 0 : 1) || (a.dorsal ?? 999) - (b.dorsal ?? 999));
-  $("#lu-add").innerHTML = avail.length
-    ? avail.map((p) => `<option value="${esc(p.id)}">${esc(p.dorsal ?? "–")} · ${esc(p.name)} (${esc(p.category || "sin cat.")})</option>`).join("")
-    : `<option value="">No quedan jugadores</option>`;
-  const cur = mvp !== undefined ? mvp : $("#mf-mvp").value;
-  $("#mf-mvp").innerHTML = `<option value="">— Sin MVP —</option>` +
-    inIds.map((id) => player(id)).filter(Boolean).map((p) => `<option value="${esc(p.id)}" ${p.id === cur ? "selected" : ""}>${esc(p.name)}</option>`).join("");
+// ---------- once interactivo
+async function saveLineup(m, rows, msg) {
+  const formation = formationOf(m);
+  const arr = arrange(rows, formation, player);
+  return run(() => S.store.saveMatch({ ...m, formation }, arr.rows), msg);
+}
+const newRow = (pid, starter, slot = null) => ({ player_id: pid, starter, slot, minutes: null, goals: 0, assists: 0, yellow: 0, red: 0, rating: null, note: null });
+
+function pickerModal(mid, slot) {
+  const m = match(mid);
+  const formation = formationOf(m);
+  const arr = arrange(lineupRows(mid), formation, player);
+  const s = slot === "" ? null : FORMATIONS[formation][Number(slot)];
+  const occ = s ? arr.bySlot[Number(slot)] : null;
+  const inLineup = new Set(arr.rows.map((r) => r.player_id));
+  const G = { G: "Portero", D: "Defensa", M: "Centrocampista", F: "Delantero" };
+  const score = (p) => (p.category === m.category ? 0 : 2) + (s && groupOf(p) === s.g ? 0 : 1);
+  const item = (p, where) => `<button class="pk" data-act="pick-player" data-mid="${esc(mid)}" data-slot="${esc(slot)}" data-pid="${esc(p.id)}" data-q="${esc((p.name + " " + (p.dorsal ?? "") + " " + (p.nickname || "")).toLowerCase())}">
+    ${avatar(p, "sm")}<span class="pk-t"><b>${esc(p.dorsal ?? "–")} · ${esc(p.name)}</b><small>${esc([p.detail_position || p.position, p.category, where].filter(Boolean).join(" · "))}</small></span></button>`;
+  const benchP = arr.bench.map((r) => player(r.player_id)).filter(Boolean);
+  const onPitch = s ? arr.rows.filter((r) => r.starter && r.slot !== Number(slot)).map((r) => player(r.player_id)).filter(Boolean) : [];
+  const rest = S.data.players.filter((p) => !inLineup.has(p.id) && p.status !== "Baja").sort((a, b) => score(a) - score(b) || (a.dorsal ?? 999) - (b.dorsal ?? 999));
+  modal(`<h2>${s ? `Elegir ${esc(s.l)}${G[s.g] ? ` <small class="muted">(${G[s.g]})</small>` : ""}` : "Añadir al banquillo"}</h2>
+    ${occ ? `<div class="pk-occ"><span>Ahora: <b>${esc(player(occ.player_id)?.name || "")}</b></span>
+      <button class="btn small ghost" data-act="slot-bench" data-mid="${esc(mid)}" data-slot="${esc(slot)}">Mandar al banquillo</button>
+      <button class="btn small ghost danger-t" data-act="slot-clear" data-mid="${esc(mid)}" data-slot="${esc(slot)}">Quitar</button></div>` : ""}
+    <input type="search" id="pick-q" placeholder="Buscar por nombre o dorsal" aria-label="Buscar jugador">
+    <div class="pk-list">
+      ${benchP.length && s ? `<h3>En el banquillo</h3>${benchP.map((p) => item(p, "Suplente")).join("")}` : ""}
+      ${onPitch.length ? `<h3>Ya en el campo <small class="muted">(se intercambian)</small></h3>${onPitch.map((p) => item(p, "Titular")).join("")}` : ""}
+      <h3>Plantilla</h3>${rest.map((p) => item(p, "")).join("") || `<p class="empty">No quedan jugadores disponibles.</p>`}
+    </div>
+    <div class="actions"><button class="btn ghost" data-act="close">Cerrar</button></div>`);
+  $("#pick-q").focus();
+}
+
+function rateModal(mid, pid) {
+  const m = match(mid), p = player(pid);
+  const r = lineupRows(mid).find((x) => x.player_id === pid);
+  if (!r || !p) return;
+  const quick = [4, 5, 5.5, 6, 6.5, 7, 7.5, 8, 8.5, 9, 10];
+  const mins = r.minutes ?? (r.starter ? 90 : "");
+  const stepper = (f, label) => `<div class="stp"><span>${label}</span><button type="button" data-act="cnt" data-f="${f}" data-d="-1" aria-label="Menos ${label}">−</button><output id="o-${f}">${Number(r[f]) || 0}</output><button type="button" data-act="cnt" data-f="${f}" data-d="1" aria-label="Más ${label}">+</button><input type="hidden" name="${f}" value="${Number(r[f]) || 0}"></div>`;
+  modal(`<div class="rate-h">${avatar(p, "sm")}<div><h2>${esc(p.name)}</h2><p class="muted small">${esc([p.dorsal != null ? "#" + p.dorsal : null, r.starter ? "Titular" : "Suplente", p.position].filter(Boolean).join(" · "))}</p></div></div>
+  <form id="rateform" class="form" data-mid="${esc(mid)}" data-pid="${esc(pid)}">
+    <div class="rate-big"><button type="button" data-act="rate-step" data-d="-0.5" aria-label="Bajar nota">−</button>
+      <output id="rate-val" class="${ratingClass(r.rating)}">${fmtRating(r.rating)}</output>
+      <button type="button" data-act="rate-step" data-d="0.5" aria-label="Subir nota">+</button></div>
+    <input type="hidden" name="rating" value="${esc(r.rating ?? "")}">
+    <div class="rate-quick">${quick.map((v) => `<button type="button" data-act="rate-set" data-v="${v}" class="${Number(r.rating) === v ? "on" : ""}">${v}</button>`).join("")}<button type="button" data-act="rate-set" data-v="" class="clear">Sin nota</button></div>
+    <div class="stps">${stepper("goals", "Goles")}${stepper("assists", "Asist.")}
+      <label class="mins">Minutos<input type="number" name="minutes" min="0" max="130" inputmode="numeric" value="${esc(mins)}"></label></div>
+    <div class="frow chk">
+      <label class="check"><input type="checkbox" name="yellow" ${r.yellow ? "checked" : ""}> <span class="card-y"></span> Amarilla</label>
+      <label class="check"><input type="checkbox" name="red" ${r.red ? "checked" : ""}> <span class="card-r"></span> Roja</label>
+      <label class="check"><input type="checkbox" name="mvp" ${m.mvp_id === pid ? "checked" : ""}> MVP del partido</label>
+    </div>
+    <label>Comentario<input name="note" value="${esc(r.note || "")}" placeholder="Ej.: gol de falta, imperial en defensa…" maxlength="140"></label>
+    <div class="actions"><button type="button" class="btn ghost" data-act="close">Cancelar</button><button class="btn">Guardar</button></div>
+  </form>`);
 }
 
 // ------------------------------------------------------------ cuentas y usuarios
@@ -639,7 +712,8 @@ async function run(fn, okMsg) {
     return true;
   } catch (e) {
     console.error(e);
-    toast(e.message || "Algo ha fallado", true);
+    const msg = /kickoff_time|formation|'slot'|slot column|logo_url/i.test(e.message || "") ? "Falta ejecutar en Supabase el SQL de actualización (mira las instrucciones)" : e.message;
+    toast(msg || "Algo ha fallado", true);
     return false;
   }
 }
@@ -686,24 +760,62 @@ document.addEventListener("click", async (e) => {
     case "del-note":
       if (await confirmBox("Se borrará esta nota.")) await run(() => S.store.deleteNote(id), "Nota borrada");
       break;
-    case "lu-add": {
-      const pid = $("#lu-add").value;
-      if (pid) { $("#lu-body").insertAdjacentHTML("beforeend", lineupRow({}, player(pid))); refreshLineupSelects(); }
+    case "lmode": S.lmode = { ...(S.lmode || {}), [id]: el.dataset.v }; render(); break;
+    case "slot-pick": pickerModal(location.hash.split("/")[2], el.dataset.slot); break;
+    case "bench-add": pickerModal(id, ""); break;
+    case "rate": rateModal(location.hash.split("/")[2], el.dataset.pid); break;
+    case "pick-player": case "slot-bench": case "slot-clear": {
+      const mid = el.dataset.mid, m = match(mid), slot = el.dataset.slot === "" ? null : Number(el.dataset.slot);
+      const rows = arrange(lineupRows(mid), formationOf(m), player).rows;
+      const occ = slot == null ? null : rows.find((r) => r.starter && r.slot === slot);
+      if (act === "pick-player") {
+        const pid = el.dataset.pid, ex = rows.find((r) => r.player_id === pid);
+        if (slot == null) { if (!ex) rows.push(newRow(pid, false)); }
+        else if (ex && ex.starter) { if (occ) occ.slot = ex.slot; ex.slot = slot; }
+        else {
+          if (occ) { occ.starter = false; occ.slot = null; }
+          if (ex) { ex.starter = true; ex.slot = slot; } else rows.push(newRow(pid, true, slot));
+        }
+      } else if (occ && act === "slot-bench") { occ.starter = false; occ.slot = null; }
+      else if (occ && act === "slot-clear") rows.splice(rows.indexOf(occ), 1);
+      closeModal();
+      await saveLineup(m, rows);
       break;
     }
-    case "lu-all": {
-      const cat = $("#mf-cat").value;
-      const inIds = [...$("#lu-body").querySelectorAll("tr")].map((t) => t.dataset.pid);
-      const add = S.data.players.filter((p) => p.category === cat && p.status === "Activo" && !inIds.includes(p.id))
-        .sort((a, b) => (a.dorsal ?? 999) - (b.dorsal ?? 999));
-      $("#lu-body").insertAdjacentHTML("beforeend", add.map((p) => lineupRow({}, p)).join(""));
-      refreshLineupSelects();
-      if (!add.length) toast("No hay más jugadores activos en esa categoría");
+    case "bench-remove": {
+      const mid = location.hash.split("/")[2], m = match(mid);
+      await saveLineup(m, lineupRows(mid).filter((r) => r.player_id !== el.dataset.pid));
       break;
     }
-    case "lu-remove": el.closest("tr").remove(); refreshLineupSelects(); break;
+    case "call-all": {
+      const m = match(id), rows = lineupRows(id), inIds = new Set(rows.map((r) => r.player_id));
+      const add = S.data.players.filter((p) => p.category === m.category && p.status === "Activo" && !inIds.has(p.id)).sort((a, b) => (a.dorsal ?? 999) - (b.dorsal ?? 999));
+      if (!add.length) { toast(`No hay más jugadores activos en ${m.category || "esta categoría"}`); break; }
+      await saveLineup(m, rows.concat(add.map((p) => newRow(p.id, false))), `${add.length} convocados al banquillo`);
+      break;
+    }
+    case "rate-set": case "rate-step": {
+      const inp = $("#rateform [name=rating]");
+      let v = act === "rate-set" ? el.dataset.v : (num(inp.value) ?? 6) + Number(el.dataset.d);
+      if (v !== "") v = Math.min(10, Math.max(0, Math.round(Number(v) * 2) / 2));
+      inp.value = v;
+      const o = $("#rate-val"); o.textContent = fmtRating(v); o.className = ratingClass(v);
+      document.querySelectorAll(".rate-quick button").forEach((b) => b.classList.toggle("on", b.dataset.v !== "" && Number(b.dataset.v) === v));
+      break;
+    }
+    case "cnt": {
+      const f = el.dataset.f, inp = $(`#rateform [name=${f}]`);
+      inp.value = Math.max(0, (Number(inp.value) || 0) + Number(el.dataset.d));
+      $(`#o-${f}`).textContent = inp.value;
+      break;
+    }
+    case "card-lineup": {
+      const m = match(id);
+      downloadCanvas(await lineupCard(m, S.data), `${m.match_date}-once-${slug(m.rival)}.png`);
+      break;
+    }
     case "copy-player": copyText(playerCaption(player(id), S.data)); break;
-    case "copy-match": copyText(matchCaption(match(id), S.data)); break;
+    case "copy-match": { const m = match(id); copyText(result(m) === "P" ? lineupCaption(m, S.data) : matchCaption(m, S.data)); break; }
     case "card-player": {
       const p = player(id);
       downloadCanvas(await playerCard(p, S.data), `${slug(p.name)}.png`);
@@ -730,6 +842,11 @@ document.addEventListener("click", async (e) => {
 
 document.addEventListener("input", (e) => {
   if (e.target.id === "uq") { S.uq = e.target.value; renderUsers(); return; }
+  if (e.target.id === "pick-q") {
+    const q = e.target.value.trim().toLowerCase();
+    document.querySelectorAll(".pk").forEach((b) => (b.hidden = !!q && !b.dataset.q.includes(q)));
+    return;
+  }
   if (e.target.id === "fq") {
     S.filters.q = e.target.value;
     const pos = e.target.selectionStart;
@@ -738,6 +855,11 @@ document.addEventListener("input", (e) => {
   }
 });
 document.addEventListener("change", async (e) => {
+  if (e.target.id === "formation-sel") {
+    const m = { ...match(e.target.dataset.id), formation: e.target.value };
+    await saveLineup(m, lineupRows(m.id).map((r) => ({ ...r, slot: null })), `Sistema ${m.formation}`);
+    return;
+  }
   if (e.target.classList.contains("role-sel")) {
     const id = e.target.dataset.id, role = e.target.value, u = S.users.find((x) => x.id === id);
     if (role === "admin" && !(await confirmBox(`${u.email} tendrá control total, incluida la gestión de usuarios.`).then((ok) => ok))) { renderUsers(); return; }
@@ -822,23 +944,33 @@ document.addEventListener("submit", async (e) => {
       if (!ok) btn.disabled = false;
     }
     if (f.id === "matchform") {
-      const lineup = [...f.querySelectorAll("#lu-body tr")].map((tr) => {
-        const v = (n) => tr.querySelector(`[name=${n}]`);
-        return { player_id: tr.dataset.pid, starter: v("starter").checked, minutes: num(v("minutes").value) ?? 0,
-          goals: num(v("goals").value) ?? 0, assists: num(v("assists").value) ?? 0, yellow: num(v("yellow").value) ?? 0,
-          red: num(v("red").value) ?? 0, rating: num(v("rating").value), note: v("note").value.trim() || null };
-      });
+      const old = f.dataset.id ? match(f.dataset.id) : null;
       const ok = await run(async () => {
-        const saved = await S.store.saveMatch({
-          id: f.dataset.id || undefined, match_date: fd.get("match_date"), category: fd.get("category"),
-          competition: fd.get("competition").trim() || null, rival: fd.get("rival").trim(), venue: fd.get("venue"),
+        const data = {
+          id: f.dataset.id || undefined, match_date: fd.get("match_date"), kickoff_time: fd.get("kickoff_time") || null, category: fd.get("category"),
+          competition: fd.get("competition").trim() || null, rival: fd.get("rival").trim(), venue: fd.get("venue"), formation: fd.get("formation"),
           goals_for: num(fd.get("goals_for")), goals_against: num(fd.get("goals_against")),
-          notes: fd.get("notes").trim() || null, mvp_id: fd.get("mvp_id") || null,
-        }, lineup);
+          notes: fd.get("notes").trim() || null, mvp_id: old ? old.mvp_id : null,
+        };
+        let rows = old ? lineupRows(old.id) : [];
+        if (old && old.formation !== data.formation) rows = rows.map((r) => ({ ...r, slot: null }));
+        rows = arrange(rows, formationOf(data), player).rows;
+        const saved = await S.store.saveMatch(data, rows);
         closeModal();
+        if (!old) S.lmode = { ...(S.lmode || {}), [saved.id]: "pick" };
+        else if (old && result(old) === "P" && result(data) !== "P") S.lmode = { ...(S.lmode || {}), [saved.id]: "rate" };
         location.hash = `#/partido/${saved.id}`;
-      }, "Partido guardado");
+      }, old ? "Partido guardado" : "Partido creado. Ahora monta el once");
       if (!ok) btn.disabled = false;
+    }
+    if (f.id === "rateform") {
+      const mid = f.dataset.mid, pid = f.dataset.pid, m = { ...match(mid) };
+      const rows = lineupRows(mid), r = rows.find((x) => x.player_id === pid);
+      Object.assign(r, { rating: num(fd.get("rating")), goals: num(fd.get("goals")) ?? 0, assists: num(fd.get("assists")) ?? 0,
+        minutes: num(fd.get("minutes")), yellow: fd.get("yellow") ? 1 : 0, red: fd.get("red") ? 1 : 0, note: fd.get("note").trim() || null });
+      if (fd.get("mvp")) m.mvp_id = pid; else if (m.mvp_id === pid) m.mvp_id = null;
+      closeModal();
+      await saveLineup(m, rows, `${shortNameOf(pid)}: ${fmtRating(r.rating)}`);
     }
     if (f.id === "noteform") {
       await run(() => S.store.saveNote({ player_id: f.dataset.id, note_date: fd.get("note_date") || today(), tag: fd.get("tag"), body: fd.get("body").trim() }), "Nota añadida");

@@ -18,8 +18,8 @@ const DEFAULT_SETTINGS = {
 
 const PLAYER_FIELDS = ["name", "nickname", "dorsal", "position", "detail_position", "foot", "birth_date", "birth_place",
   "nationality", "height_cm", "previous_clubs", "category", "status", "photo_url", "bio", "featured"];
-const MATCH_FIELDS = ["match_date", "category", "competition", "rival", "venue", "goals_for", "goals_against", "notes", "mvp_id"];
-const LINEUP_FIELDS = ["player_id", "starter", "minutes", "goals", "assists", "yellow", "red", "rating", "note"];
+const MATCH_FIELDS = ["match_date", "kickoff_time", "category", "competition", "rival", "venue", "formation", "goals_for", "goals_against", "notes", "mvp_id"];
+const LINEUP_FIELDS = ["player_id", "starter", "slot", "minutes", "goals", "assists", "yellow", "red", "rating", "note"];
 const pick = (o, keys) => Object.fromEntries(keys.map((k) => [k, o[k] === undefined ? null : o[k]]));
 
 // ------------------------------------------------------------------ Supabase
@@ -161,6 +161,7 @@ function seed() {
     [[1, 90, 0, 0, 7.0, ""], [4, 90, 1, 0, 7.5, ""], [3, 90, 0, 1, 7.0, ""], [8, 80, 0, 1, 7.0, ""], [10, 90, 1, 2, 8.5, ""], [9, 75, 2, 0, 9.0, "Doblete"], [7, 15, 0, 0, 6.5, "", false]]);
   add({ match_date: "2026-11-01", rival: "UD Las Palmas C", venue: "Visitante", goals_for: 0, goals_against: 2, notes: "Derbi duro. Mucho que aprender.", mvp_id: id(1) },
     [[1, 90, 0, 0, 7.5, "Evitó una goleada"], [4, 90, 0, 0, 5.5, ""], [3, 90, 0, 0, 5.0, ""], [8, 90, 0, 0, 6.0, ""], [10, 60, 0, 0, 5.5, ""], [9, 90, 0, 0, 5.0, ""], [7, 30, 0, 0, 6.0, "", false]]);
+  add({ match_date: "2026-11-29", kickoff_time: "11:30", rival: "CD Mensajero", venue: "Local", goals_for: null, goals_against: null, notes: "Partido clave para seguir arriba.", mvp_id: null }, []);
   const notes = [
     { id: uid(), player_id: id(10), note_date: "2026-11-23", tag: "Noticia", body: "Convocado con la selección canaria sub-18.", created_at: new Date().toISOString() },
     { id: uid(), player_id: id(10), note_date: "2026-11-10", tag: "A mejorar", body: "Tiene que mejorar la toma de decisiones cuando el rival le dobla.", created_at: new Date().toISOString() },

@@ -197,6 +197,11 @@ create table if not exists public.scout_notes (
   created_at timestamptz not null default now()
 );
 
+-- Novedades (once interactivo). Solo añaden campos: no tocan datos existentes.
+alter table public.matches add column if not exists kickoff_time text;
+alter table public.matches add column if not exists formation text;
+alter table public.match_players add column if not exists slot int;
+
 create index if not exists idx_matches_date on public.matches(match_date desc);
 create index if not exists idx_mp_player on public.match_players(player_id);
 create index if not exists idx_notes_player on public.scout_notes(player_id);

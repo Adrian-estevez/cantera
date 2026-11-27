@@ -87,7 +87,7 @@ export const blobToDataURL = (blob) =>
 export function playerStats(pid, data) {
   const byMatch = new Map(data.matches.map((m) => [m.id, m]));
   const apps = data.matchPlayers
-    .filter((a) => a.player_id === pid && byMatch.has(a.match_id))
+    .filter((a) => a.player_id === pid && byMatch.has(a.match_id) && result(byMatch.get(a.match_id)) !== "P")
     .map((a) => ({ ...a, match: byMatch.get(a.match_id) }))
     .sort((x, y) => (y.match.match_date || "").localeCompare(x.match.match_date || ""));
   const rated = apps.filter((a) => a.rating != null && a.rating !== "");
