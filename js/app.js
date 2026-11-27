@@ -310,8 +310,8 @@ function viewPlayer(id) {
         ${p.previous_clubs?.length ? `<div class="clubs"><span class="muted small">Trayectoria</span><ol>${p.previous_clubs.map((c) => `<li>${esc(c)}</li>`).join("")}<li class="now">${esc(d.settings.club_name)}</li></ol></div>` : ""}
         ${p.bio ? `<p class="bio">${esc(p.bio)}</p>` : ""}
         <div class="tools">
-          <button class="btn" data-act="card-player" data-id="${esc(id)}">Tarjeta para redes</button>
-          <button class="btn ghost" data-act="copy-player" data-id="${esc(id)}">Copiar texto</button>
+          ${canEdit() ? `<button class="btn" data-act="card-player" data-id="${esc(id)}">Tarjeta para redes</button>
+          <button class="btn ghost" data-act="copy-player" data-id="${esc(id)}">Copiar texto</button>` : ""}
           ${canEdit() ? `<button class="btn ghost" data-act="edit-player" data-id="${esc(id)}">Editar</button>` : ""}${isAdmin() ? `<button class="btn ghost danger-t" data-act="del-player" data-id="${esc(id)}">Eliminar</button>` : ""}
         </div>
       </div>
@@ -423,9 +423,9 @@ function viewMatch(id) {
       <span class="board-foot">${foot}</span>
     </div>
     <div class="tools center">
-      ${hasLineup ? `<button class="btn accent" data-act="card-lineup" data-id="${esc(id)}">${pend ? "Tarjeta del once" : "Tarjeta con notas"}</button>` : ""}
-      ${pend ? "" : `<button class="btn ${hasLineup ? "ghost-light" : "accent"}" data-act="card-match" data-id="${esc(id)}">Tarjeta del resultado</button>`}
-      <button class="btn ghost-light" data-act="copy-match" data-id="${esc(id)}">Copiar texto</button>
+      ${ed && hasLineup ? `<button class="btn accent" data-act="card-lineup" data-id="${esc(id)}">${pend ? "Tarjeta del once" : "Tarjeta con notas"}</button>` : ""}
+      ${ed && !pend ? `<button class="btn ${hasLineup ? "ghost-light" : "accent"}" data-act="card-match" data-id="${esc(id)}">Tarjeta del resultado</button>` : ""}
+      ${ed ? `<button class="btn ghost-light" data-act="copy-match" data-id="${esc(id)}">Copiar texto</button>` : ""}
       ${ed ? `<button class="btn ghost-light" data-act="edit-match" data-id="${esc(id)}">${pend ? "Poner resultado" : "Editar datos"}</button>` : ""}${isAdmin() ? `<button class="btn ghost-light" data-act="del-match" data-id="${esc(id)}">Eliminar</button>` : ""}
     </div>
   </section>
@@ -1090,6 +1090,7 @@ document.addEventListener("click", async (e) => {
   const el = e.target.closest("[data-act]");
   if (!el) return;
   const act = el.dataset.act, id = el.dataset.id;
+  if (/^(card-|copy-|ev-copy|ideal-card)/.test(act) && !canEdit()) return;
   switch (act) {
     case "close": closeModal(); break;
     case "login": authModal("login"); break;
