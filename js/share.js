@@ -42,16 +42,24 @@ function base(ctx, s) {
   }
 }
 
-function header(ctx, s, label) {
-  ctx.fillStyle = s.accent_color;
-  ctx.fillRect(60, 60, 14, 64);
+function header(ctx, s, label, logo) {
+  let x = 96;
+  if (logo) {
+    const sc = Math.min(84 / logo.width, 84 / logo.height);
+    const w = logo.width * sc, h = logo.height * sc;
+    ctx.drawImage(logo, 60 + (84 - w) / 2, 50 + (84 - h) / 2, w, h);
+    x = 164;
+  } else {
+    ctx.fillStyle = s.accent_color;
+    ctx.fillRect(60, 60, 14, 64);
+  }
   ctx.fillStyle = "#fff";
   ctx.font = `700 34px ${HEAD}`;
   ctx.textBaseline = "top";
-  ctx.fillText(`${s.site_title} · ${s.club_name}`.toUpperCase(), 96, 58);
+  ctx.fillText(`${s.site_title} · ${s.club_name}`.toUpperCase(), x, 58);
   ctx.fillStyle = "rgba(255,255,255,.7)";
   ctx.font = `500 28px ${BODY}`;
-  ctx.fillText(label, 96, 98);
+  ctx.fillText(label, x, 98);
 }
 
 function footer(ctx, s) {
@@ -109,7 +117,7 @@ export async function playerCard(p, data) {
   c.width = W; c.height = H;
   const ctx = c.getContext("2d");
   base(ctx, s);
-  header(ctx, s, "Ficha de jugador");
+  header(ctx, s, "Ficha de jugador", await loadImg(s.logo_url));
 
   // foto
   const img = await loadImg(p.photo_url);
@@ -178,7 +186,7 @@ export async function matchCard(m, data) {
   c.width = W; c.height = H;
   const ctx = c.getContext("2d");
   base(ctx, s);
-  header(ctx, s, [m.category, m.competition].filter(Boolean).join(" · ") || "Resultado");
+  header(ctx, s, [m.category, m.competition].filter(Boolean).join(" · ") || "Resultado", await loadImg(s.logo_url));
 
   const home = m.venue !== "Visitante";
   const left = home ? s.club_name : m.rival, right = home ? m.rival : s.club_name;
@@ -213,7 +221,7 @@ export async function matchCard(m, data) {
   // notas
   const pmap = new Map(data.players.map((p) => [p.id, p]));
   const lineup = data.matchPlayers.filter((a) => a.match_id === m.id && a.rating != null && a.rating !== "" && pmap.has(a.player_id))
-    .sort((a, b) => b.rating - a.rating).slice(0, 5);
+    .sort((a, b) => b.rating - a.rating).slice(0, m.mvp_id ? 4 : 5);
   ctx.textAlign = "left";
   let y = 740;
   if (m.mvp_id && pmap.has(m.mvp_id)) {
@@ -236,9 +244,10 @@ export async function matchCard(m, data) {
     ctx.font = `700 36px ${HEAD}`;
     ctx.fillText(p.dorsal != null ? String(p.dorsal) : "", 92, y + 39);
     ctx.fillStyle = "#fff";
-    ctx.font = `600 38px ${HEAD}`;
     const extra = [a.goals ? `${a.goals} gol${a.goals > 1 ? "es" : ""}` : "", a.assists ? `${a.assists} asist.` : ""].filter(Boolean).join(" · ");
-    ctx.fillText(p.name + (extra ? "  ·  " + extra : ""), 160, y + 39);
+    const line = p.name + (extra ? "  ·  " + extra : "");
+    fitText(ctx, line, W - 360, 38, 600);
+    ctx.fillText(line, 160, y + 39);
     ctx.textAlign = "right";
     ctx.fillStyle = s.accent_color;
     ctx.font = `700 46px ${HEAD}`;

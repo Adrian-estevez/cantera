@@ -39,6 +39,30 @@
   <dialog id="modal"><div id="modal-body"></div></dialog>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
-  <script type="module" src="js/app.js"></script>
+  <script>
+    // Diagnóstico: si la web no arranca, muestra el motivo en pantalla
+    (function () {
+      function show(title, detail) {
+        if (window.__canteraOk) return;
+        var m = document.getElementById("main");
+        if (!m) return;
+        m.innerHTML = '<section class="band"><div class="panel"><h1>La web no ha podido arrancar</h1><p></p><pre class="diag"></pre>' +
+          '<p class="muted">Revisa sobre todo <b>js/config.js</b>: las dos claves deben ir entre comillas rectas ("), cada línea terminada en punto y coma, y sin espacios ni saltos de línea dentro de la clave.</p></div></section>';
+        m.querySelector("p").textContent = title;
+        m.querySelector(".diag").textContent = detail || "";
+      }
+      window.__canteraFail = show;
+      window.addEventListener("error", function (e) {
+        show("Hay un error en el código:", (e.message || "") + (e.filename ? "\nArchivo: " + e.filename.split("/").slice(-2).join("/") + (e.lineno ? " · línea " + e.lineno : "") : ""));
+      });
+      window.addEventListener("unhandledrejection", function (e) {
+        show("Error al cargar:", String((e.reason && e.reason.message) || e.reason));
+      });
+      setTimeout(function () {
+        show("La web tarda demasiado en cargar.", "Puede que falte la carpeta js en GitHub, que haya un error en js/config.js o que la URL de Supabase no sea correcta.");
+      }, 15000);
+    })();
+  </script>
+  <script type="module" src="js/app.js" onerror="window.__canteraFail('No se encuentra el archivo js/app.js.', 'Comprueba en GitHub que la carpeta js está subida y contiene app.js, config.js, store.js, share.js y utils.js.')"></script>
 </body>
 </html>

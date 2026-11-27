@@ -57,7 +57,7 @@ export function num(v) {
 }
 
 // Reduce una imagen antes de subirla (máx. 800px, JPEG)
-export function resizeImage(file, max = 800, quality = 0.85) {
+export function resizeImage(file, max = 800, quality = 0.85, type = "image/jpeg") {
   return new Promise((resolve, reject) => {
     const img = new Image();
     const url = URL.createObjectURL(file);
@@ -68,7 +68,7 @@ export function resizeImage(file, max = 800, quality = 0.85) {
       c.height = Math.round(img.height * s);
       c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
       URL.revokeObjectURL(url);
-      c.toBlob((b) => (b ? resolve(b) : reject(new Error("No se pudo procesar la imagen"))), "image/jpeg", quality);
+      c.toBlob((b) => (b ? resolve(b) : reject(new Error("No se pudo procesar la imagen"))), type, quality);
     };
     img.onerror = () => reject(new Error("Imagen no válida"));
     img.src = url;

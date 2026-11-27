@@ -13,6 +13,7 @@ const DEFAULT_SETTINGS = {
   instagram: "futbolconadrix",
   private_mode: false,
   allow_signup: true,
+  logo_url: null,
 };
 
 const PLAYER_FIELDS = ["name", "nickname", "dorsal", "position", "detail_position", "foot", "birth_date", "birth_place",
@@ -116,9 +117,10 @@ function supabaseStore(sb) {
       const row = { ...s, id: 1, updated_at: new Date().toISOString() };
       return must(await sb.from("settings").upsert(row).select().single());
     },
-    async uploadPhoto(blob) {
-      const path = `players/${uid()}.jpg`;
-      must(await sb.storage.from("photos").upload(path, blob, { contentType: "image/jpeg", upsert: false }));
+    async uploadPhoto(blob, folder = "players") {
+      const png = blob.type === "image/png";
+      const path = `${folder}/${uid()}.${png ? "png" : "jpg"}`;
+      must(await sb.storage.from("photos").upload(path, blob, { contentType: png ? "image/png" : "image/jpeg", upsert: false }));
       return sb.storage.from("photos").getPublicUrl(path).data.publicUrl;
     },
   };
@@ -306,7 +308,7 @@ function demoStore() {
 
 export async function createStore() {
   if (SUPABASE_URL && SUPABASE_ANON_KEY) {
-    const { createClient } = await import("https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm");
+    const { createClient } = await import("https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm");
     return supabaseStore(createClient(SUPABASE_URL, SUPABASE_ANON_KEY));
   }
   return demoStore();

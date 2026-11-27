@@ -126,6 +126,7 @@ create table if not exists public.settings (
 );
 alter table public.settings add column if not exists private_mode boolean not null default false;
 alter table public.settings add column if not exists allow_signup boolean not null default true;
+alter table public.settings add column if not exists logo_url text;
 insert into public.settings (id) values (1) on conflict (id) do nothing;
 
 -- ¿Puede ver el contenido? (web pública, o usuario registrado no bloqueado)
@@ -230,10 +231,24 @@ begin
 
   create policy "ver" on public.settings for select using (true);
   create policy "editar" on public.settings for update using (public.is_admin()) with check (public.is_admin());
+  create policy "crear" on public.settings for insert with check (public.is_admin());
 
   create policy "ver" on public.profiles for select using (id = auth.uid() or public.is_admin());
   create policy "editar" on public.profiles for update using (public.is_admin()) with check (public.is_admin());
 end $$;
+
+-- ---------- Permisos de acceso para la web ----------
+-- Permisos para que la web pueda leer y (según el rol) escribir.
+-- Las reglas de seguridad (RLS) siguen decidiendo quién puede hacer qué.
+grant usage on schema public to anon, authenticated;
+
+grant select on public.settings, public.players, public.matches, public.match_players, public.scout_notes to anon, authenticated;
+grant insert, update, delete on public.players, public.matches, public.match_players, public.scout_notes to authenticated;
+grant insert, update on public.settings to authenticated;
+grant select, update on public.profiles to authenticated;
+
+grant execute on function public.my_role(), public.is_admin(), public.can_edit(), public.can_view() to anon, authenticated;
+grant execute on function public.admin_list_users(), public.admin_delete_user(uuid), public.update_my_name(text) to authenticated;
 
 -- ---------- Fotos (Storage) ----------
 insert into storage.buckets (id, name, public)

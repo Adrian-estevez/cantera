@@ -101,7 +101,12 @@ function applyTheme() {
   document.title = `${s.site_title} · ${s.club_name}`;
   $("#brand-name").textContent = s.site_title;
   $("#brand-club").textContent = s.club_name;
-  $("#crest").textContent = initials(s.club_name);
+  const logo = safeImg(s.logo_url);
+  const crest = $("#crest");
+  if (logo) { crest.className = "crest-logo"; crest.innerHTML = `<img src="${esc(logo)}" alt="">`; }
+  else { crest.className = "crest"; crest.textContent = initials(s.club_name); }
+  const fav = document.querySelector("link[rel=icon]");
+  if (fav) { fav.href = logo || "favicon.svg"; fav.type = logo ? (logo.includes(".png") || logo.startsWith("data:image/png") ? "image/png" : "image/jpeg") : "image/svg+xml"; }
   $("#foot-handle").textContent = HANDLE;
   $("#foot-season").textContent = `Temporada ${s.season}`;
 }
@@ -373,6 +378,10 @@ function viewSettings() {
   const s = S.data.settings;
   return `<section class="band page-h"><h1>Ajustes</h1></section>
   <section class="band tight"><form id="settingsform" class="panel form narrow">
+    <div class="logo-row"><span class="logo-prev" id="logo-prev">${safeImg(s.logo_url) ? `<img src="${esc(safeImg(s.logo_url))}" alt="Logo actual">` : `<span class="crest big">${esc(initials(s.club_name))}</span>`}</span>
+      <div><b>Logo de la web</b><p class="muted small">PNG con fondo transparente queda mejor. Se ve en la cabecera, en la pestaña del navegador y en las tarjetas para redes.</p>
+      <div class="frow"><label class="btn ghost small filebtn">Subir logo<input type="file" name="logo" accept="image/png,image/jpeg,image/webp,image/svg+xml" hidden></label>
+      ${s.logo_url ? `<label class="check"><input type="checkbox" name="remove_logo"> Quitar logo</label>` : ""}</div></div></div>
     <label>Nombre del club<input name="club_name" value="${esc(s.club_name)}" required></label>
     <label>Título de la web<input name="site_title" value="${esc(s.site_title)}" required></label>
     <label>Temporada<input name="season" value="${esc(s.season)}"></label>
@@ -737,6 +746,9 @@ document.addEventListener("change", async (e) => {
   }
   if (e.target.id === "fpos") { S.filters.pos = e.target.value; render(); }
   if (e.target.id === "fstatus") { S.filters.status = e.target.value; render(); }
+  if (e.target.name === "logo" && e.target.files[0]) {
+    $("#logo-prev").innerHTML = `<img src="${URL.createObjectURL(e.target.files[0])}" alt="Nuevo logo">`;
+  }
   if (e.target.name === "photo" && e.target.files[0]) {
     const url = URL.createObjectURL(e.target.files[0]);
     $("#ph-prev").innerHTML = `<img class="ava lg" src="${url}" alt="">`;
@@ -832,12 +844,17 @@ document.addEventListener("submit", async (e) => {
       await run(() => S.store.saveNote({ player_id: f.dataset.id, note_date: fd.get("note_date") || today(), tag: fd.get("tag"), body: fd.get("body").trim() }), "Nota añadida");
     }
     if (f.id === "settingsform") {
-      await run(() => S.store.saveSettings({
+      const logoFile = fd.get("logo");
+      await run(async () => {
+        let logo_url = S.data.settings.logo_url || null;
+        if (fd.get("remove_logo")) logo_url = null;
+        if (logoFile && logoFile.size) logo_url = await S.store.uploadPhoto(await resizeImage(logoFile, 512, 0.92, "image/png"), "logos");
+        await S.store.saveSettings({ logo_url,
         club_name: fd.get("club_name").trim(), site_title: fd.get("site_title").trim(), season: fd.get("season").trim(),
         primary_color: fd.get("primary_color"), accent_color: fd.get("accent_color"),
         categories: fd.get("categories").split(",").map((s) => s.trim()).filter(Boolean),
         allow_signup: !!fd.get("allow_signup"), private_mode: !!fd.get("private_mode"),
-      }), "Ajustes guardados");
+      }); }, "Ajustes guardados");
     }
   } finally {
     btn && document.body.contains(btn) && (btn.disabled = false);
@@ -874,13 +891,18 @@ window.addEventListener("hashchange", () => { render(); window.scrollTo(0, 0); }
 
 (async () => {
   try {
-    S.store = await createStore();
+    const timeout = (ms, what) => new Promise((_, rej) => setTimeout(() => rej(new Error(what)), ms));
+    S.store = await Promise.race([createStore(), timeout(12000, "No se pudo cargar la librería de Supabase (revisa tu conexión o un bloqueador de anuncios).")]);
     await reload();
     S.store.onRecovery(() => newPasswordModal());
-    await afterAuth(true);
+    await Promise.race([afterAuth(true), timeout(12000, "Supabase no responde. Comprueba que SUPABASE_URL en js/config.js es correcta y que el proyecto no está pausado.")]);
+    window.__canteraOk = true;
   } catch (e) {
     console.error(e);
-    main.innerHTML = `<section class="band"><div class="panel"><h1>No se pudo cargar la web</h1><p>${esc(e.message)}</p>
+    window.__canteraOk = true;
+    const msg = /relation .* does not exist|schema cache|Could not find the table/i.test(e.message) ? `${e.message} → Falta ejecutar supabase/schema.sql en el SQL Editor.`
+      : /Invalid API key|No API key|JWT/i.test(e.message) ? `${e.message} → La clave de js/config.js no es correcta.` : e.message;
+    main.innerHTML = `<section class="band"><div class="panel"><h1>No se pudo cargar la web</h1><p>${esc(msg)}</p>
       <p class="muted">Revisa la configuración de Supabase en <code>js/config.js</code> y que hayas ejecutado <code>supabase/schema.sql</code>.</p></div></section>`;
   }
 })();

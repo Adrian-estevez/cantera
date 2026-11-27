@@ -40,7 +40,7 @@ python3 -m http.server 8000     # o: npx serve .
 
 1. Crea una cuenta en <https://supabase.com> y luego un proyecto nuevo.
 2. Ve a **SQL Editor → New query**, pega el contenido de `supabase/schema.sql` y pulsa **Run**. Puedes volver a ejecutarlo cuando quieras para actualizar, sin perder datos.
-3. Ve a **Project Settings → API** y copia la **Project URL** y la **anon public key**.
+3. Pulsa el botón **Connect** de arriba del proyecto y copia la **Project URL** y la **Publishable key** (`sb_publishable_...`). También están en **Project Settings → Data API** (la URL) y **Project Settings → API Keys** (la clave).
 
 ### 2. Configurar la web
 
