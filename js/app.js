@@ -784,7 +784,7 @@ async function loadStandingsBox() {
     if (!$("#st-box")) return;
     box.innerHTML = `<div class="st-head">${cfg.league_logo && /^https:\/\//.test(cfg.league_logo) ? `<img src="${esc(cfg.league_logo)}" alt="">` : ""}<div><h2>${esc(cfg.league_name || cfg.category)}</h2><p class="muted small">${esc([cfg.category, group, cfg.season ? `Temporada ${cfg.season}/${String(cfg.season + 1).slice(2)}` : null].filter(Boolean).join(" · "))}</p></div></div>
       ${standingsTable(rows, cfg)}
-      <p class="muted small st-meta">${esc(meta)}</p>
+      <p class="muted small st-meta">${esc(meta)}${isAdmin() && cfg.source === "manual" ? ` <button class="btn small accent st-photo-btn" data-act="st-photo" data-id="${esc(cfg.category)}">Actualizar con una foto</button>` : ""}</p>
       ${rows.some((r) => r.desc) ? `<p class="st-legend"><span class="lgi"><span class="lg-up"></span> Ascenso / fase final</span><span class="lgi"><span class="lg-down"></span> Descenso</span></p>` : ""}`;
   } catch (e) {
     box.innerHTML = `<h2>${esc(cfg.league_name || cfg.category)}</h2><p class="err">${isAdmin() ? esc(e.message) : "La clasificación no está disponible ahora mismo. Vuelve a intentarlo en un rato."}</p>`;
@@ -830,9 +830,12 @@ function renderStConfig() {
         <div id="stc-res" class="stc-res">${c.league_id ? `<p class="small">Liga elegida: <b>${esc(c.league_name || "")}</b></p>` : ""}</div>
         <div id="stc-sel"></div>`
       : `
-        <p class="muted small">Escribe cada equipo con sus partidos. Los puntos (3 por victoria y 1 por empate), la diferencia de goles y el orden se calculan solos.</p>
+        <p class="muted small">Sube una captura de la tabla o escribe cada equipo. Los puntos (3 por victoria y 1 por empate), la diferencia de goles y el orden se calculan solos.</p>
+        <div class="stm-photo"><label class="btn accent filebtn">Subir foto o captura de la clasificación<input type="file" id="stc-photo" accept="image/*" hidden></label>
+          <span class="muted small" id="stc-photo-msg">Haz una captura de la tabla (web de la federación, una app…) y la web la lee sola.</span></div>
+        ${manualRows.some((r) => r.check) ? `<p class="stm-warn">Revisa las filas marcadas en rojo: algún número no se leyó bien (PJ tiene que ser G + E + P).</p>` : ""}
         <div class="scroll"><table class="stm"><thead><tr><th>Equipo</th><th>PJ</th><th>G</th><th>E</th><th>P</th><th>GF</th><th>GC</th><th></th></tr></thead><tbody id="stm-body">
-          ${manualRows.map((r) => `<tr class="stm-row"><td><input name="team" value="${esc(r.team || "")}" placeholder="Nombre del equipo"></td>${["pj", "g", "e", "p", "gf", "gc"].map((k) => `<td><input name="${k}" type="number" min="0" inputmode="numeric" value="${esc(r[k] ?? "")}"></td>`).join("")}<td><button type="button" class="x" data-act="stm-del" aria-label="Quitar equipo">×</button></td></tr>`).join("")}
+          ${manualRows.map((r) => `<tr class="stm-row${r.team && (r.check || (r.pj !== "" && r.pj != null && Number(r.pj) !== (Number(r.g) || 0) + (Number(r.e) || 0) + (Number(r.p) || 0))) ? " warn" : ""}"><td><input name="team" value="${esc(r.team || "")}" placeholder="Nombre del equipo"></td>${["pj", "g", "e", "p", "gf", "gc"].map((k) => `<td><input name="${k}" type="number" min="0" inputmode="numeric" value="${esc(r[k] ?? "")}"></td>`).join("")}<td><button type="button" class="x" data-act="stm-del" aria-label="Quitar equipo">×</button></td></tr>`).join("")}
         </tbody></table></div>
         <div class="frow"><button type="button" class="btn ghost small" data-act="stm-add">+ Añadir equipo</button></div>
         <details class="stm-paste"><summary>Pegar la tabla desde Excel o desde la web de la federación</summary>
@@ -854,20 +857,100 @@ function collectManual() {
   const t = $("#stc-team"); if (t) c.team_name = t.value || null;
 }
 function parsePasted(text) {
-  return text.split(/\r?\n/).map((line) => {
-    const l = line.replace(/\t/g, " ").trim(); if (!l) return null;
-    const m = l.match(/^(\d+[.ºª]?\s+)?(.*?[^\d\s.,-][^\d]*?)\s+((?:-?\d+\s*)+)$/);
-    if (!m) return null;
-    let n = m[3].trim().split(/\s+/).map(Number);
-    if (n.length >= 7) {
-      if (n[0] === 3 * n[2] + n[3]) n = n.slice(1);           // Pts PJ G E P GF GC
-      else if (n[6] === 3 * n[1] + n[2]) n = n.slice(0, 6);   // PJ G E P GF GC Pts
+  // Acepta filas pegadas o leídas de una foto. Busca 6 números seguidos donde PJ = G + E + P,
+  // elige la misma posición de columnas para toda la tabla y marca las filas dudosas.
+  const isNum = (t) => /^[+\-−]?\d+$/.test(t);
+  const lines = String(text || "").split(/\r?\n/).map((line) => {
+    let l = line.replace(/\t/g, " ").replace(/[|·•]/g, " ").replace(/\s+/g, " ").trim();
+    if (!l) return null;
+    l = l.replace(/(?<=\d)[Oo](?=\d|\b)/g, "0").replace(/\b[Oo](?=\d)/g, "0").replace(/(?<=\d)[lI](?=\d|\b)/g, "1");
+    const toks = l.split(" ");
+    // bloque final de números (se toleran 1-2 caracteres basura entre números: el OCR a veces confunde una cifra)
+    let i = toks.length;
+    while (i > 0 && (isNum(toks[i - 1]) || (toks[i - 1].length <= 2 && i - 2 >= 0 && isNum(toks[i - 2]) && i < toks.length))) i--;
+    const nums = toks.slice(i).map((t) => (isNum(t) ? Number(t.replace("−", "-")) : null));
+    let nameToks = toks.slice(0, i);
+    if (nameToks.length && /^\d+[.ºª)]?$/.test(nameToks[0])) nameToks = nameToks.slice(1);
+    const team = nameToks.join(" ").replace(/^[^\p{L}\d]+/u, "").trim();
+    if (!team || !/\p{L}/u.test(team) || nums.filter((x) => x != null).length < 5 || nums.length < 6) return null;
+    const cands = [];
+    for (let j = 0; j + 5 < nums.length; j++) {
+      const [pj, g, e, p, gf, gc] = nums.slice(j, j + 6);
+      if ([pj, g, e, p, gf, gc].every((x) => x != null && x >= 0) && pj === g + e + p) {
+        cands.push({ j, ptsOk: nums.some((x, q) => (q < j || q > j + 5) && x === 3 * g + e) });
+      }
     }
-    if (n.length < 6) return null;
-    const [pj, g, e, p, gf, gc] = n;
-    return { team: m[2].trim(), pj, g, e, p, gf, gc };
+    return { team, nums, cands };
+  }).filter(Boolean);
+  const votes = {};
+  lines.forEach((L) => { const c = L.cands.length === 1 ? L.cands[0] : L.cands.find((x) => x.ptsOk); if (c) votes[c.j] = (votes[c.j] || 0) + 1; });
+  const modal = Object.keys(votes).length ? Number(Object.entries(votes).sort((a, b) => b[1] - a[1])[0][0]) : null;
+  return lines.map(({ team, nums, cands }) => {
+    let k = (cands.find((c) => c.j === modal) || cands.find((c) => c.ptsOk) || cands[0] || {}).j;
+    if (k == null) k = modal != null && modal + 5 < nums.length ? modal : nums.length >= 7 && nums[0] === 3 * nums[2] + nums[3] ? 1 : 0;
+    let [pj, g, e, p, gf, gc] = nums.slice(k, k + 6);
+    // si falta un solo dato de PJ/G/E/P, se deduce
+    const four = [pj, g, e, p], miss = four.filter((x) => x == null).length;
+    if (miss === 1) {
+      if (pj == null) pj = g + e + p; else if (g == null) g = pj - e - p; else if (e == null) e = pj - g - p; else p = pj - g - e;
+    }
+    const vals = [pj, g, e, p, gf, gc];
+    const check = vals.some((x) => x == null || x < 0) || pj !== g + e + p || miss === 1;
+    const v = (x) => (x == null || x < 0 ? "" : x);
+    return { team, pj: v(pj), g: v(g), e: v(e), p: v(p), gf: v(gf), gc: v(gc), check };
   }).filter(Boolean);
 }
+
+// Lee una foto o captura de la clasificación (OCR en el propio navegador, sin claves)
+let tessLoading = null;
+function loadTesseract() {
+  if (window.Tesseract) return Promise.resolve(window.Tesseract);
+  if (!tessLoading) tessLoading = new Promise((res, rej) => {
+    const sc = document.createElement("script");
+    sc.src = "https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js";
+    sc.onload = () => res(window.Tesseract);
+    sc.onerror = () => { tessLoading = null; rej(new Error("No se pudo cargar el lector de imágenes. Revisa tu conexión.")); };
+    document.head.appendChild(sc);
+  });
+  return tessLoading;
+}
+function prepareImage(file) {
+  return new Promise((resolve, reject) => {
+    const img = new Image(), url = URL.createObjectURL(file);
+    img.onload = () => {
+      const scale = Math.min(3, Math.max(1, 1800 / img.width));
+      const c = document.createElement("canvas");
+      c.width = Math.round(img.width * scale); c.height = Math.round(img.height * scale);
+      const ctx = c.getContext("2d");
+      ctx.imageSmoothingQuality = "high";
+      ctx.drawImage(img, 0, 0, c.width, c.height);
+      const d = ctx.getImageData(0, 0, c.width, c.height), px = d.data;
+      let sum = 0;
+      for (let i = 0; i < px.length; i += 4) { const g = 0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2]; px[i] = px[i + 1] = px[i + 2] = g; sum += g; }
+      const dark = sum / (px.length / 4) < 128;
+      let mn = 255, mx = 0;
+      for (let i = 0; i < px.length; i += 4) { let g = px[i]; if (dark) g = 255 - g; px[i] = g; if (g < mn) mn = g; if (g > mx) mx = g; }
+      const r = Math.max(1, mx - mn);
+      for (let i = 0; i < px.length; i += 4) { const g = ((px[i] - mn) * 255) / r; px[i] = px[i + 1] = px[i + 2] = g; }
+      ctx.putImageData(d, 0, 0);
+      URL.revokeObjectURL(url);
+      resolve(c);
+    };
+    img.onerror = () => reject(new Error("La imagen no es válida."));
+    img.src = url;
+  });
+}
+async function readStandingsPhoto(file, onProgress) {
+  const T = await loadTesseract();
+  const canvas = await prepareImage(file);
+  const worker = await T.createWorker("spa", 1, { logger: (m) => { if (m.status === "recognizing text") onProgress(Math.round(m.progress * 100)); } });
+  try {
+    await worker.setParameters({ tessedit_pageseg_mode: "6", preserve_interword_spaces: "1" });
+    const { data } = await worker.recognize(canvas);
+    return data.text;
+  } finally { await worker.terminate(); }
+}
+
 async function renderStSel(force) {
   const c = S.stEdit, box = $("#stc-sel"); if (!box) return;
   const L = S.stLeagues[c.league_id];
@@ -1504,6 +1587,7 @@ document.addEventListener("click", async (e) => {
     case "card-regen": { const r = S.cardCur?.regen; if (r) await makeMatchCard(r.mid, r.kind); break; }
     case "st-cat": S.stcat = el.dataset.v; render(); break;
     case "st-config": stConfig(id); break;
+    case "st-photo": stConfig(id); setTimeout(() => $("#stc-photo")?.click(), 50); break;
     case "stc-src": collectManual(); S.stEdit.source = el.dataset.v; renderStConfig(); break;
     case "stm-add": collectManual(); S.stEdit.rows = [...(S.stEdit.rows || []), {}]; renderStConfig(); break;
     case "stm-del": el.closest("tr").remove(); break;
@@ -1638,6 +1722,20 @@ document.addEventListener("change", async (e) => {
   }
   if (e.target.id === "fpos") { S.filters.pos = e.target.value; render(); }
   if (e.target.id === "fstatus") { S.filters.status = e.target.value; render(); }
+  if (e.target.id === "stc-photo" && e.target.files[0]) {
+    const file = e.target.files[0], msg = $("#stc-photo-msg");
+    msg.textContent = "Preparando el lector… (la primera vez tarda unos segundos)";
+    try {
+      const text = await readStandingsPhoto(file, (pct) => { const m = $("#stc-photo-msg"); if (m) m.textContent = `Leyendo la imagen… ${pct}%`; });
+      const rows = parsePasted(text);
+      if (!rows.length) { const m = $("#stc-photo-msg"); if (m) m.textContent = "No he podido leer equipos en esa imagen. Prueba con una captura más nítida, solo de la tabla."; return; }
+      collectManual();
+      S.stEdit.rows = rows;
+      renderStConfig();
+      toast(`${rows.length} equipos leídos de la foto. Revisa los números antes de guardar`);
+    } catch (err) { const m = $("#stc-photo-msg"); if (m) m.textContent = err.message; }
+    return;
+  }
   if (e.target.name === "rival_logo" && e.target.files[0]) {
     $("#rival-prev").innerHTML = `<img src="${URL.createObjectURL(e.target.files[0])}" alt="Nuevo escudo">`;
   }

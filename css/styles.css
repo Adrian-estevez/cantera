@@ -598,7 +598,8 @@ th.n .sortb { width: 100%; text-align: right; }
 .st-head img { width: 44px; height: 44px; object-fit: contain; }
 .st-head h2 { margin: 0; }
 .st-head p { margin: 2px 0 0; }
-.st-meta { margin: 10px 0 0; }
+.st-meta { margin: 10px 0 0; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.st-photo-btn { margin-left: auto; }
 .st-legend { font-size: 13px; color: var(--muted); display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 6px 0 0; }
 .lg-up, .lg-down { width: 12px; height: 12px; border-radius: 3px; background: #15a34a; display: inline-block; }
 .lg-down { background: #d8261b; }
@@ -615,6 +616,10 @@ th.n .sortb { width: 100%; text-align: right; }
 .stm input { min-height: 38px; padding: 6px 8px; font-size: 15px; }
 .stm input[type=number] { width: 60px; }
 .stm td { padding: 3px; }
+.stm-photo { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; padding: 12px; border-radius: 12px; background: var(--soft); }
+.stm-row.warn td { background: color-mix(in srgb, var(--loss) 14%, transparent); }
+.stm-row.warn input { border-color: var(--loss); }
+.stm-warn { margin: 0; padding: 10px 12px; border-radius: 10px; background: color-mix(in srgb, var(--loss) 14%, transparent); font-size: 14px; font-weight: 600; }
 .stm-paste summary { cursor: pointer; font-weight: 600; padding: 6px 0; }
 @media (max-width: 600px) { .stand .c-gf, .stand .c-form { display: none; } .stand { min-width: 0; } }
 
