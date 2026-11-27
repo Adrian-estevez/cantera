@@ -1,8 +1,9 @@
 import { createStore } from "./store.js";
 import { HANDLE } from "./config.js";
-import { esc, age, fmtDate, fmtRating, ratingClass, result, initials, num, today, resizeImage, playerStats } from "./utils.js";
-import { playerCard, matchCard, lineupCard, canvasToBlob, playerCaption, matchCaption, lineupCaption } from "./share.js";
-import { FORMATIONS, FORMATION_NAMES, arrange, pitchHTML, defaultFormation, groupOf } from "./lineup.js";
+import { esc, age, fmtDate, fmtRating, ratingClass, result, initials, num, today, resizeImage, playerStats, periodStats } from "./utils.js";
+import { playerCard, matchCard, lineupCard, rankingCard, idealCard, compareCard, toStory, canvasToBlob, playerCaption, matchCaption, lineupCaption } from "./share.js";
+import { FORMATIONS, FORMATION_NAMES, arrange, pitchHTML, defaultFormation, groupOf, detailLabels } from "./lineup.js";
+import { isLive, clockLabel, clockMinute, defaultHalf, eventsOf, currentXI, computeMinutes, scoreAt, ICONS, eventText, eventPost } from "./live.js";
 
 const POSITIONS = ["Portero", "Defensa", "Centrocampista", "Delantero"];
 const FEET = ["Diestro", "Zurdo", "Ambidiestro"];
@@ -74,6 +75,20 @@ function confirmBox(text) {
   });
 }
 
+function confirmBox2(title, text, yes) {
+  return new Promise((res) => {
+    modal(`<h2>${esc(title)}</h2><p>${esc(text)}</p>
+      <div class="actions"><button class="btn ghost" data-c="0">Cancelar</button><button class="btn" data-c="1">${esc(yes)}</button></div>`);
+    $("#modal-body").addEventListener("click", function h(e) {
+      const b = e.target.closest("[data-c]");
+      if (!b) return;
+      $("#modal-body").removeEventListener("click", h);
+      closeModal();
+      res(b.dataset.c === "1");
+    });
+  });
+}
+
 async function copyText(text) {
   try {
     await navigator.clipboard.writeText(text);
@@ -86,10 +101,19 @@ async function copyText(text) {
 }
 
 async function downloadCanvas(canvas, filename) {
-  const blob = await canvasToBlob(canvas);
-  const url = URL.createObjectURL(blob);
-  modal(`<h2>Imagen lista</h2><img class="preview" src="${url}" alt="Vista previa de la tarjeta">
-    <div class="actions"><button class="btn ghost" data-act="close">Cerrar</button><a class="btn" href="${url}" download="${esc(filename)}">Descargar PNG</a></div>`, true);
+  if (S.cardCur) { URL.revokeObjectURL(S.cardCur.post); S.cardCur.story && URL.revokeObjectURL(S.cardCur.story); }
+  S.cardCur = { canvas, filename, post: URL.createObjectURL(await canvasToBlob(canvas)), story: null };
+  showCard("post");
+}
+async function showCard(fmt) {
+  const c = S.cardCur;
+  if (fmt === "story" && !c.story) c.story = URL.createObjectURL(await canvasToBlob(await toStory(c.canvas, S.data.settings)));
+  const url = fmt === "story" ? c.story : c.post;
+  const name = fmt === "story" ? c.filename.replace(/\.png$/, "-story.png") : c.filename;
+  modal(`<h2>Imagen lista</h2>
+    <div class="seg fmt" role="tablist" aria-label="Formato"><button role="tab" class="${fmt === "post" ? "on" : ""}" data-act="card-fmt" data-v="post">Post 4:5</button><button role="tab" class="${fmt === "story" ? "on" : ""}" data-act="card-fmt" data-v="story">Story 9:16</button></div>
+    <img class="preview ${fmt}" src="${url}" alt="Vista previa de la tarjeta">
+    <div class="actions"><button class="btn ghost" data-act="close">Cerrar</button><a class="btn" href="${url}" download="${esc(name)}">Descargar PNG</a></div>`, true);
 }
 
 const slug = (s) => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
@@ -101,6 +125,7 @@ function applyTheme() {
   r.setProperty("--club", s.primary_color || "#0f5132");
   r.setProperty("--accent", s.accent_color || "#f2c230");
   document.title = `${s.site_title} · ${s.club_name}`;
+  document.querySelector("meta[name=theme-color]")?.setAttribute("content", s.primary_color || "#0a3a8c");
   $("#brand-name").textContent = s.site_title;
   $("#brand-club").textContent = s.club_name;
   const logo = safeImg(s.logo_url);
@@ -122,6 +147,7 @@ function renderAuth() {
   document.body.classList.toggle("is-admin", canEdit());
   $("#nav-settings").hidden = !isAdmin();
   $("#nav-users").hidden = !isAdmin();
+  $("#nav-content").hidden = !canEdit();
   $("#demo-banner").hidden = S.store.mode !== "demo";
 }
 
@@ -135,6 +161,7 @@ function viewHome() {
   const last = played[0];
   const upcoming = d.matches.filter((m) => result(m) === "P" && m.match_date >= today())
     .sort((a, b) => (a.match_date + (a.kickoff_time || "")).localeCompare(b.match_date + (b.kickoff_time || "")));
+  const liveM = d.matches.find((m) => isLive(m));
   const next = upcoming[0];
   const active = d.players.filter((p) => p.status !== "Baja");
 
@@ -150,7 +177,14 @@ function viewHome() {
         <span class="board-foot">${esc(fmtDate(next.match_date, true))}${next.competition ? ` · ${esc(next.competition)}` : ""}</span><span class="board-foot"><b>${lineupRows(next.id).some((r) => r.starter) ? "Ver el once" : "Once por confirmar"}</b></span>
       </a>`
     : "";
-  const lastCard = nextCard || (last
+  const liveCard = liveM
+    ? `<a class="board" href="#/partido/${esc(liveM.id)}">
+        <span class="board-tag"><span class="livebadge"><i></i>En directo</span> ${esc(m_meta(liveM))}</span>
+        <span class="board-row"><span class="board-team">${esc(teams(liveM)[0])}</span><span class="board-score">${esc(scoreText(liveM))}</span><span class="board-team r">${esc(teams(liveM)[1])}</span></span>
+        <span class="board-foot"><b class="clock" data-clock="${esc(liveM.id)}">${esc(clockLabel(liveM))}</b> · Sigue el minuto a minuto</span>
+      </a>`
+    : "";
+  const lastCard = liveCard || nextCard || (last
     ? `<a class="board" href="#/partido/${esc(last.id)}">
         <span class="board-tag">Último partido · ${esc(m_meta(last))}</span>
         <span class="board-row"><span class="board-team">${esc(teams(last)[0])}</span><span class="board-score">${esc(scoreText(last))}</span><span class="board-team r">${esc(teams(last)[1])}</span></span>
@@ -206,7 +240,7 @@ function matchRow(m) {
   return `<a class="mrow" href="#/partido/${esc(m.id)}">
     <span class="mdate">${esc(fmtDate(m.match_date))}<small>${esc(m.category || "")}</small></span>
     <span class="mteams"><span>${esc(a)}</span><span>${esc(b)}</span></span>
-    <span class="mscore res-${r}">${esc(scoreText(m))}</span></a>`;
+    <span class="mscore res-${isLive(m) ? "L" : r}">${esc(scoreText(m))}${isLive(m) ? `<small data-clock="${esc(m.id)}">${esc(clockLabel(m))}</small>` : ""}</span></a>`;
 }
 
 function playerCardHTML(p) {
@@ -365,12 +399,17 @@ function viewMatch(id) {
   if (!m) return notFound("Este partido no existe o fue eliminado.");
   const r = result(m), pend = r === "P", [a, b] = teams(m);
   const formation = formationOf(m);
-  const arr = arrange(lineupRows(id), formation, player);
+  const live = isLive(m);
+  const evs = eventsOf(S.data, id);
   const ed = canEdit();
-  const mode = (S.lmode && S.lmode[id]) || (pend ? "pick" : "rate");
+  const mode = (S.lmode && S.lmode[id]) || (live && ed ? "live" : pend ? "pick" : "rate");
+  const base = arrange(lineupRows(id), formation, player);
+  const arr = live || mode === "live" ? currentXI(base, evs) : base;
   const { pitch, bench } = pitchHTML(arr, player, { editable: ed, mode, mvp: m.mvp_id, photo: (p) => safeImg(p.photo_url) });
   const hasLineup = arr.rows.length > 0;
-  const foot = pend
+  const foot = live
+    ? `<span class="livebadge"><i></i>En directo</span> <b class="clock" data-clock="${esc(id)}">${esc(clockLabel(m))}</b> · ${esc(m.venue)}`
+    : pend
     ? `<span class="res res-P">Próximo partido</span> ${esc(fmtDate(m.match_date, true))}${m.kickoff_time ? ` · ${esc(m.kickoff_time)} h` : ""} · ${esc(m.venue)}`
     : `<span class="res res-${r}">${RES_LABEL[r]}</span> ${esc(fmtDate(m.match_date, true))} · ${esc(m.venue)}`;
   const rated = arr.rows.filter((x) => x.rating != null && x.rating !== "");
@@ -396,13 +435,17 @@ function viewMatch(id) {
         <div class="seg" role="tablist" aria-label="Modo">
           <button role="tab" aria-selected="${mode === "pick"}" class="${mode === "pick" ? "on" : ""}" data-act="lmode" data-id="${esc(id)}" data-v="pick">Alineación</button>
           <button role="tab" aria-selected="${mode === "rate"}" class="${mode === "rate" ? "on" : ""}" data-act="lmode" data-id="${esc(id)}" data-v="rate">Puntuar</button>
+          <button role="tab" aria-selected="${mode === "live"}" class="${mode === "live" ? "on" : ""} seg-live" data-act="lmode" data-id="${esc(id)}" data-v="live">${live ? `<i class="dot"></i>` : ""}Directo</button>
         </div>
         <label class="fsel">Sistema<select id="formation-sel" data-id="${esc(id)}">${FORMATION_NAMES.map((f) => `<option ${f === formation ? "selected" : ""}>${esc(f)}</option>`).join("")}</select></label>
       </div>
-      <p class="lhelp">${mode === "pick" ? "Toca una posición del campo para elegir al jugador. Toca a uno ya colocado para cambiarlo o mandarlo al banquillo." : "Toca a cualquier jugador (también del banquillo) para ponerle nota, goles, asistencias y tarjetas."}</p>` : `<p class="lhelp">${esc(formation)}</p>`}
+      <p class="lhelp">${mode === "pick" ? "Toca una posición del campo para elegir al jugador. Toca a uno ya colocado para cambiarlo o mandarlo al banquillo." : mode === "live" ? "Modo directo: toca a un jugador para apuntarle un gol, una tarjeta o un cambio." : "Toca a cualquier jugador (también del banquillo) para ponerle nota, goles, asistencias y tarjetas."}</p>` : `<p class="lhelp">${live ? "Once actual en el campo" : esc(formation)}</p>`}
+      ${ed && mode === "live" ? `<div class="live-m">${livePanel(m)}</div>` : ""}
       ${hasLineup || ed ? pitch : `<div class="panel"><p class="empty">Todavía no se ha publicado el once de este partido.</p></div>`}
     </div>
     <aside class="side">
+      ${ed && mode === "live" ? `<div class="live-d">${livePanel(m)}</div>` : ""}
+      ${evs.length || live || (ed && mode === "live") ? `<div class="panel"><div class="panel-h"><h2>Minuto a minuto</h2>${live ? `<span class="livebadge sm"><i></i>Se actualiza solo</span>` : ""}</div>${timelineHTML(m, evs, ed && mode === "live")}</div>` : ""}
       <div class="panel">
         <div class="panel-h"><h2>Banquillo</h2>${ed && mode === "pick" ? `<span class="row-gap"><button class="btn small ghost" data-act="bench-add" data-id="${esc(id)}">+ Añadir</button><button class="btn small ghost" data-act="call-all" data-id="${esc(id)}">Convocar categoría</button></span>` : ""}</div>
         <div class="bench">${bench || `<p class="empty">${ed && mode === "pick" ? "Añade suplentes o convoca a toda la categoría." : "Sin suplentes."}</p>`}</div>
@@ -630,6 +673,255 @@ function rateModal(mid, pid) {
   </form>`);
 }
 
+
+// ------------------------------------------------------------ instalar como app
+const isStandalone = () => window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+const isIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+const isMobile = () => /android|iphone|ipad|ipod|mobile/i.test(navigator.userAgent) || isIOS();
+let deferredPrompt = null;
+function lsGet(k) { try { return localStorage.getItem(k); } catch { return null; } }
+function lsSet(k, v) { try { localStorage.setItem(k, v); } catch {} }
+function updateInstallUI() {
+  const can = !isStandalone() && (deferredPrompt || isMobile());
+  $("#foot-install").hidden = !can;
+  const snoozed = Number(lsGet("cantera_install_snooze") || 0) > Date.now();
+  const show = can && isMobile() && !snoozed && (deferredPrompt || isIOS());
+  $("#install-bar").hidden = !show;
+  if (show && isIOS() && !deferredPrompt) { $("#ib-msg").textContent = "Pulsa Compartir y luego «Añadir a pantalla de inicio»."; $("#ib-btn").textContent = "Cómo"; }
+}
+window.addEventListener("beforeinstallprompt", (e) => { e.preventDefault(); deferredPrompt = e; if (S.data) updateInstallUI(); });
+window.addEventListener("appinstalled", () => { deferredPrompt = null; updateInstallUI(); toast("¡App instalada! Ya la tienes en tu pantalla de inicio"); });
+async function doInstall() {
+  if (deferredPrompt) {
+    deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice.catch(() => ({ outcome: "dismissed" }));
+    deferredPrompt = null;
+    if (outcome !== "accepted") lsSet("cantera_install_snooze", String(Date.now() + 14 * 864e5));
+    updateInstallUI();
+    return;
+  }
+  const ios = isIOS();
+  modal(`<h2>Instalar La Cantera</h2>
+    <p class="muted">Tendrás un icono en tu pantalla de inicio y se abrirá a pantalla completa, como una app.</p>
+    <ol class="steps">${ios
+      ? `<li>Abre esta web en <b>Safari</b>.</li><li>Pulsa el botón <b>Compartir</b> (el cuadrado con la flecha hacia arriba).</li><li>Elige <b>Añadir a pantalla de inicio</b> y pulsa <b>Añadir</b>.</li>`
+      : `<li>Abre esta web en <b>Chrome</b>.</li><li>Pulsa el menú <span class="kbd">⋮</span> de arriba a la derecha.</li><li>Elige <b>Instalar aplicación</b> (o <b>Añadir a pantalla de inicio</b>).</li>`}</ol>
+    <div class="actions"><button class="btn" data-act="close">Entendido</button></div>`);
+}
+
+// ------------------------------------------------------------ crear contenido
+const STAT_OPTS = [["goals", "Goles", "Máximos goleadores"], ["assists", "Asistencias", "Máximos asistentes"], ["ga", "Goles + asistencias", "Goles + asistencias"], ["avg", "Nota media", "Mejores notas"], ["mvps", "Veces MVP", "Más veces MVP"], ["minutes", "Minutos", "Más minutos"], ["pj", "Partidos jugados", "Más partidos"]];
+const PERIODS = [["season", "Toda la temporada"], ["week", "Última jornada"], ["month", "Este mes"], ["prevmonth", "Mes pasado"], ["custom", "Fechas a elegir"]];
+const MONTHS_ES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
+
+function periodRange(v, cat, from, to) {
+  const d = new Date(), iso = (x) => x.toISOString().slice(0, 10);
+  if (v === "week") {
+    const played = S.data.matches.filter((m) => result(m) !== "P" && (!cat || m.category === cat)).map((m) => m.match_date).sort();
+    const last = played[played.length - 1];
+    if (!last) return { from: null, to: null, label: "Última jornada", season: false };
+    const f = new Date(last + "T00:00:00"); f.setDate(f.getDate() - 6);
+    return { from: iso(f), to: last, label: `Jornada del ${fmtDate(last)}`, season: false };
+  }
+  if (v === "month" || v === "prevmonth") {
+    const y = d.getFullYear(), mo = d.getMonth() - (v === "prevmonth" ? 1 : 0);
+    const f = new Date(Date.UTC(y, mo, 1)), t = new Date(Date.UTC(y, mo + 1, 0));
+    return { from: iso(f), to: iso(t), label: `Mes de ${MONTHS_ES[f.getUTCMonth()]}`, season: false };
+  }
+  if (v === "custom") return { from: from || null, to: to || null, label: `${from ? fmtDate(from) : "Inicio"} – ${to ? fmtDate(to) : "hoy"}`, season: false };
+  return { from: null, to: null, label: `Temporada ${S.data.settings.season}`, season: true };
+}
+// estadísticas por jugador en el periodo (la temporada incluye las cifras previas)
+function statsFor(range, cat) {
+  const players = S.data.players.filter((p) => p.status !== "Baja" && (!cat || p.category === cat));
+  const per = range.season ? null : periodStats(S.data, range.from, range.to, cat || null).stats;
+  return players.map((p) => {
+    if (range.season) { const st = playerStats(p.id, S.data); return { p, pj: st.pj, goals: st.goals, assists: st.assists, minutes: st.minutes, avg: st.avg, rn: st.apps.filter((a) => a.rating != null && a.rating !== "").length, mvps: st.mvps, cards: st.yellow + st.red }; }
+    const x = per.get(p.id) || { pj: 0, goals: 0, assists: 0, minutes: 0, avg: null, rn: 0, mvps: 0 };
+    return { p, ...x, cards: 0 };
+  });
+}
+const catOpts = (sel) => `<option value="">Toda la cantera</option>` + [...new Set([...S.data.settings.categories, ...S.data.players.map((p) => p.category).filter(Boolean)])].map((c) => `<option ${c === sel ? "selected" : ""}>${esc(c)}</option>`).join("");
+const periodFields = (def = "season") => `<label>Periodo<select name="period" class="period-sel">${PERIODS.map(([v, l]) => `<option value="${v}" ${v === def ? "selected" : ""}>${l}</option>`).join("")}</select></label>
+  <div class="frow custom" hidden><label>Desde<input type="date" name="from"></label><label>Hasta<input type="date" name="to"></label></div>`;
+
+function viewContent() {
+  if (!canEdit()) return notFound("Esta sección es para el administrador y los colaboradores.");
+  const ps = S.data.players.filter((p) => p.status !== "Baja").sort((a, b) => (a.category || "").localeCompare(b.category || "") || (a.dorsal ?? 999) - (b.dorsal ?? 999));
+  const pOpts = (sel) => ps.map((p) => `<option value="${esc(p.id)}" ${p.id === sel ? "selected" : ""}>${esc(p.dorsal ?? "–")} · ${esc(p.name)} (${esc(p.category || "—")})</option>`).join("");
+  return `<section class="band page-h"><h1>Crear contenido</h1>
+    <p class="lede-s">Genera tarjetas listas para publicar. Todas (también las de jugadores y partidos) se pueden descargar como <b>post 4:5</b> o <b>story 9:16</b>.</p></section>
+  <section class="band tight cx-grid">
+    <form class="panel cx form" id="cx-rank">
+      <div class="cx-h"><span class="cx-ic">1</span><div><h2>Ranking</h2><p class="muted small">Goleadores, asistentes, mejores notas…</p></div></div>
+      <label>Estadística<select name="stat">${STAT_OPTS.map(([v, l]) => `<option value="${v}">${l}</option>`).join("")}</select></label>
+      <div class="frow"><label>Categoría<select name="cat">${catOpts("")}</select></label><label class="w-s">Cuántos<select name="n"><option>5</option><option>10</option></select></label></div>
+      ${periodFields()}
+      <button class="btn">Generar tarjeta</button>
+    </form>
+    <form class="panel cx form" id="cx-ideal">
+      <div class="cx-h"><span class="cx-ic">2</span><div><h2>Once ideal</h2><p class="muted small">Te propongo el once con mejor nota media y lo retocas.</p></div></div>
+      <div class="frow"><label>Categoría<select name="cat">${catOpts(S.data.settings.categories[0])}</select></label>
+      <label>Sistema<select name="formation">${FORMATION_NAMES.map((f) => `<option>${esc(f)}</option>`).join("")}</select></label></div>
+      ${periodFields("week")}
+      <button class="btn ghost">Proponer once</button>
+      <div id="ideal-slots"></div>
+    </form>
+    <form class="panel cx form" id="cx-cmp">
+      <div class="cx-h"><span class="cx-ic">3</span><div><h2>Cara a cara</h2><p class="muted small">Compara a dos jugadores con barras.</p></div></div>
+      <label>Jugador 1<select name="a">${pOpts(ps[0]?.id)}</select></label>
+      <label>Jugador 2<select name="b">${pOpts(ps[1]?.id)}</select></label>
+      ${periodFields()}
+      <button class="btn">Generar tarjeta</button>
+    </form>
+  </section>`;
+}
+
+function proposeIdeal(form) {
+  const fd = new FormData(form);
+  const cat = fd.get("cat"), formation = fd.get("formation");
+  const range = periodRange(fd.get("period"), cat, fd.get("from"), fd.get("to"));
+  const list = statsFor(range, cat).filter((x) => x.avg != null).sort((a, b) => b.avg - a.avg || b.goals - a.goals);
+  const slots = FORMATIONS[formation], used = new Set();
+  // 1º demarcación exacta (el mejor de cada puesto), 2º misma línea, 3º sin posición
+  const pick = slots.map(() => "");
+  for (const pass of ["detail", "group", "none"]) {
+    slots.forEach((sl, i) => {
+      if (pick[i]) return;
+      const c = list.find((x) => !used.has(x.p.id) && (pass === "detail" ? detailLabels(x.p).includes(sl.l) : pass === "group" ? groupOf(x.p) === sl.g : !groupOf(x.p)));
+      if (c) { used.add(c.p.id); pick[i] = c.p.id; }
+    });
+  }
+  const all = statsFor(range, cat).sort((a, b) => (b.avg ?? -1) - (a.avg ?? -1));
+  const opt = (sel) => `<option value="">— Vacío —</option>` + all.map((x) => `<option value="${esc(x.p.id)}" ${x.p.id === sel ? "selected" : ""}>${x.avg != null ? fmtRating(x.avg) : "–"} · ${esc(x.p.name)}${x.p.position ? ` (${esc(POS_SHORT[x.p.position] || "")})` : ""}</option>`).join("");
+  $("#ideal-slots").innerHTML = `<p class="muted small">${esc(range.label)} · ${list.length ? `${list.length} jugadores con nota` : "nadie tiene notas en este periodo"}. Cambia lo que quieras:</p>
+    <div class="ideal-list">${slots.map((sl, i) => `<label class="ideal-row"><span class="pos-tag pos-${({ G: 0, D: 1, M: 2, F: 3 })[sl.g]}">${esc(sl.l)}</span><select data-slot="${i}">${opt(pick[i])}</select></label>`).join("")}</div>
+    <button type="button" class="btn" data-act="ideal-card">Generar tarjeta</button>`;
+  S.idealCtx = { formation, range, cat };
+}
+
+// ------------------------------------------------------------ directo
+const pname = (id) => { const p = player(id); return p ? p.name : "Jugador"; };
+function liveMinuteDefault(m) {
+  const h = m.half_minutes || defaultHalf(m.category);
+  return clockMinute(m) ?? (m.live_status === "descanso" ? h : m.live_status === "final" ? 2 * h : 0);
+}
+function timelineHTML(m, evs, editable) {
+  if (!evs.length) return `<p class="empty">${isLive(m) ? "Aún no ha pasado nada." : "Sin eventos registrados."}</p>`;
+  const rival = m.rival;
+  return `<ol class="tl-live">${evs.slice().reverse().map((e) => {
+    const [gf, ga] = scoreAt(evs, e);
+    const sc = ["gol", "gol_rival"].includes(e.type) ? `<span class="tl-sc">${m.venue === "Visitante" ? `${ga}-${gf}` : `${gf}-${ga}`}</span>` : "";
+    return `<li class="ev ev-${esc(e.type)}"><span class="ev-min">${e.minute != null ? esc(e.minute) + "'" : ""}</span><span class="ev-ic">${ICONS[e.type] || ICONS.nota}</span>
+      <span class="ev-tx">${eventText(e, pname, rival)} ${sc}</span>
+      ${editable ? `<span class="ev-act"><button class="link" data-act="ev-copy" data-id="${esc(e.id)}">Copiar</button>${e.type !== "estado" ? `<button class="x" data-act="ev-del" data-id="${esc(e.id)}" aria-label="Borrar evento">×</button>` : ""}</span>` : ""}</li>`;
+  }).join("")}</ol>`;
+}
+function livePanel(m) {
+  const st = m.live_status;
+  const half = m.half_minutes || defaultHalf(m.category);
+  const status = isLive(m) ? `<span class="livebadge"><i></i>En directo</span> <b class="clock" data-clock="${esc(m.id)}">${esc(clockLabel(m))}</b>`
+    : st === "final" ? `<span class="res res-${result(m)}">Final</span>` : `<span class="muted">Sin empezar</span>`;
+  const adj = `<button class="btn small ghost" data-act="live-adj" data-id="${esc(m.id)}" data-d="-1" aria-label="Restar un minuto">−1'</button><button class="btn small ghost" data-act="live-adj" data-id="${esc(m.id)}" data-d="1" aria-label="Sumar un minuto">+1'</button>`;
+  const ctl = !st ? `<label class="halfsel">Minutos por parte<input type="number" class="live-half" min="10" max="60" value="${half}" inputmode="numeric"></label><button class="btn accent" data-act="live-start" data-id="${esc(m.id)}">Empezar partido</button>`
+    : st === "primera" ? `<button class="btn" data-act="live-break" data-id="${esc(m.id)}">Descanso</button>${adj}`
+    : st === "descanso" ? `<button class="btn accent" data-act="live-second" data-id="${esc(m.id)}">Empezar 2ª parte</button>`
+    : st === "segunda" ? `<button class="btn danger" data-act="live-final" data-id="${esc(m.id)}">Final del partido</button>${adj}`
+    : `<button class="btn small ghost" data-act="live-reopen" data-id="${esc(m.id)}">Reabrir directo</button>`;
+  const actions = [["gol", "Gol nuestro"], ["gol_rival", "Gol rival"], ["amarilla", "Amarilla"], ["roja", "Roja"], ["cambio", "Cambio"], ["nota", "Comentario"]];
+  return `<div class="panel live-ctl">
+    <div class="live-top">${status}</div>
+    <div class="live-btns">${ctl}</div>
+    ${st ? `<div class="live-acts">${actions.map(([t, l]) => `<button class="lact lact-${t}" data-act="live-ev" data-id="${esc(m.id)}" data-type="${t}">${ICONS[t]}<span>${l}</span></button>`).join("")}</div>
+    <p class="lhelp">También puedes tocar a un jugador del campo para apuntarle un gol, una tarjeta o cambiarlo.</p>` : `<p class="lhelp">Al empezar, el marcador se pone 0-0 y el reloj corre solo. Tus seguidores lo verán en directo.</p>`}
+  </div>`;
+}
+
+function liveXI(m) {
+  const arr = arrange(lineupRows(m.id), formationOf(m), player);
+  return currentXI(arr, eventsOf(S.data, m.id));
+}
+
+function eventModal(mid, type, pid = null) {
+  const m = match(mid);
+  const xi = liveXI(m);
+  const onPitch = xi.bySlot.filter(Boolean).map((r) => player(r.player_id)).filter(Boolean);
+  const bench = xi.bench.map((r) => player(r.player_id)).filter(Boolean);
+  const all = [...onPitch, ...bench];
+  const opt = (list, sel, empty) => (empty ? `<option value="">${esc(empty)}</option>` : "") + list.map((p) => `<option value="${esc(p.id)}" ${p.id === sel ? "selected" : ""}>${esc(p.dorsal ?? "–")} · ${esc(p.name)}</option>`).join("");
+  const title = { gol: "Gol nuestro", gol_rival: `Gol de ${m.rival}`, amarilla: "Tarjeta amarilla", roja: "Tarjeta roja", cambio: "Cambio", nota: "Comentario" }[type];
+  const fields = {
+    gol: `<label>Goleador<select name="player_id">${opt(onPitch, pid, "Sin especificar")}</select></label>
+          <label>Asistencia<select name="player2_id">${opt(onPitch, null, "Sin asistencia")}</select></label>`,
+    gol_rival: `<label>Detalle <small>(opcional)</small><input name="body" maxlength="80" placeholder="Ej.: de penalti"></label>`,
+    amarilla: `<label>Jugador<select name="player_id" required>${opt(all, pid, "Elige jugador")}</select></label>`,
+    roja: `<label>Jugador<select name="player_id" required>${opt(all, pid, "Elige jugador")}</select></label>`,
+    cambio: `<label>Sale<select name="player_id" required>${opt(onPitch, onPitch.some((p) => p.id === pid) ? pid : null, "Elige quién sale")}</select></label>
+          <label>Entra<select name="player2_id" required>${opt(bench, bench.some((p) => p.id === pid) ? pid : null, bench.length ? "Elige quién entra" : "No hay suplentes convocados")}</select></label>`,
+    nota: `<label>Comentario<input name="body" maxlength="140" required placeholder="Ej.: ocasión clarísima de Yeremay"></label>`,
+  }[type];
+  modal(`<h2>${esc(title)}</h2>
+    <form id="eventform" class="form" data-mid="${esc(mid)}" data-type="${esc(type)}">
+      ${fields}
+      <label class="w-s">Minuto<input type="number" name="minute" min="0" max="130" inputmode="numeric" value="${esc(liveMinuteDefault(m))}"></label>
+      <div class="actions"><button type="button" class="btn ghost" data-act="close">Cancelar</button><button class="btn">Apuntar</button></div>
+    </form>`);
+}
+
+function playerSheet(mid, pid, fromBench) {
+  const p = player(pid);
+  const btn = (t, l) => `<button class="lact lact-${t}" data-act="live-ev" data-id="${esc(mid)}" data-type="${t}" data-pid="${esc(pid)}">${ICONS[t]}<span>${l}</span></button>`;
+  modal(`<div class="rate-h">${avatar(p, "sm")}<div><h2>${esc(p.name)}</h2><p class="muted small">${fromBench ? "En el banquillo" : "En el campo"}</p></div></div>
+    <div class="live-acts sheet">${fromBench ? btn("cambio", "Sale al campo") + btn("amarilla", "Amarilla") + btn("roja", "Roja")
+      : btn("gol", "Gol") + btn("amarilla", "Amarilla") + btn("roja", "Roja") + btn("cambio", "Sustituir")}</div>
+    <div class="actions"><button class="btn ghost" data-act="close">Cerrar</button></div>`);
+}
+
+// aplica (sign=1) o deshace (sign=-1) los efectos de un evento en el marcador y las estadísticas
+async function applyEvent(m, ev, sign) {
+  const rows = lineupRows(m.id);
+  const row = (pid) => rows.find((r) => r.player_id === pid);
+  const inc = async (pid, f, cap) => {
+    if (!pid) return;
+    let v = Math.max(0, (Number(row(pid)?.[f]) || 0) + sign);
+    if (cap) v = Math.min(cap, v);
+    await S.store.upsertLineupRow(m.id, pid, { [f]: v });
+  };
+  if (ev.type === "gol") {
+    await S.store.updateMatch(m.id, { goals_for: Math.max(0, (Number(m.goals_for) || 0) + sign) });
+    await inc(ev.player_id, "goals");
+    await inc(ev.player2_id, "assists");
+  }
+  if (ev.type === "gol_rival") await S.store.updateMatch(m.id, { goals_against: Math.max(0, (Number(m.goals_against) || 0) + sign) });
+  if (ev.type === "amarilla") await inc(ev.player_id, "yellow", 2);
+  if (ev.type === "roja" && ev.player_id) await S.store.upsertLineupRow(m.id, ev.player_id, { red: sign > 0 ? 1 : 0 });
+  if (ev.type === "cambio" && sign > 0 && ev.player2_id && !row(ev.player2_id)) await S.store.upsertLineupRow(m.id, ev.player2_id, { starter: false });
+}
+
+async function liveStatus(m, patch, label, minute) {
+  return run(async () => {
+    await S.store.updateMatch(m.id, patch);
+    if (label) await S.store.addEvent({ match_id: m.id, type: "estado", minute, body: label });
+  }, label || "Actualizado");
+}
+
+// ---- refresco en tiempo real
+let refreshTimer = null;
+function softRefresh() {
+  clearTimeout(refreshTimer);
+  refreshTimer = setTimeout(async () => {
+    try { await reload(); } catch { return; }
+    const a = document.activeElement;
+    if ($("#modal").open || (a && main.contains(a) && /INPUT|TEXTAREA|SELECT/.test(a.tagName))) { S.pendingRender = true; return; }
+    const y = window.scrollY;
+    render();
+    window.scrollTo(0, y);
+  }, 350);
+}
+function tickClocks() {
+  document.querySelectorAll("[data-clock]").forEach((el) => { const m = match(el.dataset.clock); if (m) el.textContent = clockLabel(m); });
+}
+
 // ------------------------------------------------------------ cuentas y usuarios
 const AUTH_ERR = {
   "Invalid login credentials": "Email o contraseña incorrectos",
@@ -788,7 +1080,7 @@ async function run(fn, okMsg) {
     return true;
   } catch (e) {
     console.error(e);
-    const msg = /kickoff_time|formation|'slot'|slot column|logo_url|base_(pj|goals|assists|yellow|red)/i.test(e.message || "") ? "Falta ejecutar en Supabase el SQL de actualización (mira las instrucciones)" : e.message;
+    const msg = /kickoff_time|formation|'slot'|slot column|logo_url|base_(pj|goals|assists|yellow|red)|match_events|live_status|live_started_at|half_minutes/i.test(e.message || "") ? "Falta ejecutar en Supabase el SQL de actualización (mira las instrucciones)" : e.message;
     toast(msg || "Algo ha fallado", true);
     return false;
   }
@@ -890,6 +1182,65 @@ document.addEventListener("click", async (e) => {
       $(`#o-${f}`).textContent = inp.value;
       break;
     }
+    case "live-player": { const mid = location.hash.split("/")[2]; playerSheet(mid, el.dataset.pid, !!el.dataset.bench); break; }
+    case "live-ev": closeModal(); eventModal(id, el.dataset.type, el.dataset.pid || null); break;
+    case "live-start": {
+      const m = match(id), half = Math.max(10, Math.min(60, Number(el.closest(".live-ctl")?.querySelector(".live-half")?.value) || defaultHalf(m.category)));
+      await liveStatus(m, { live_status: "primera", live_started_at: new Date().toISOString(), half_minutes: half, goals_for: m.goals_for ?? 0, goals_against: m.goals_against ?? 0 }, "Empieza el partido", 0);
+      break;
+    }
+    case "live-break": { const m = match(id); await liveStatus(m, { live_status: "descanso" }, "Descanso", clockMinute(m)); break; }
+    case "live-second": { const m = match(id); await liveStatus(m, { live_status: "segunda", live_started_at: new Date().toISOString() }, "Empieza la 2ª parte", m.half_minutes || 45); break; }
+    case "live-final": {
+      const m = match(id);
+      if (!(await confirmBox2("¿Terminar el partido?", "Se calcularán los minutos jugados de cada uno según los cambios. Después podrás poner las notas.", "Sí, final"))) break;
+      const total = 2 * (m.half_minutes || 45);
+      const mins = computeMinutes(lineupRows(id), eventsOf(S.data, id), total);
+      const ok = await run(async () => {
+        for (const r of lineupRows(id)) if (r.minutes == null) await S.store.upsertLineupRow(id, r.player_id, { minutes: mins[r.player_id] ?? 0 });
+        await S.store.updateMatch(id, { live_status: "final" });
+        await S.store.addEvent({ match_id: id, type: "estado", minute: Math.max(total, clockMinute(m) || 0), body: "Final del partido" });
+      }, "Final. Ahora puedes poner las notas");
+      if (ok) { S.lmode = { ...(S.lmode || {}), [id]: "rate" }; render(); }
+      break;
+    }
+    case "live-reopen": {
+      const m = match(id);
+      const fin = eventsOf(S.data, id).filter((e) => e.type === "estado" && e.body === "Final del partido");
+      await run(async () => { await S.store.updateMatch(id, { live_status: "segunda" }); for (const e of fin) await S.store.deleteEvent(e.id); }, "Directo reabierto");
+      break;
+    }
+    case "live-adj": {
+      const m = match(id); if (!m.live_started_at) break;
+      const t = new Date(m.live_started_at).getTime() - Number(el.dataset.d) * 60000;
+      await run(() => S.store.updateMatch(id, { live_started_at: new Date(t).toISOString() }), `Reloj: ${clockLabel({ ...m, live_started_at: new Date(t).toISOString() })}`);
+      break;
+    }
+    case "ev-del": {
+      const ev = (S.data.events || []).find((e) => e.id === id); if (!ev) break;
+      const m = match(ev.match_id);
+      if (await confirmBox("Se borrará este evento y se deshará su efecto en el marcador y las estadísticas."))
+        await run(async () => { await applyEvent(m, ev, -1); await S.store.deleteEvent(id); }, "Evento borrado");
+      break;
+    }
+    case "ev-copy": {
+      const ev = (S.data.events || []).find((e) => e.id === id); if (!ev) break;
+      const m = match(ev.match_id), s = S.data.settings;
+      copyText(eventPost(ev, { name: (pid) => { const p = player(pid); return p ? (p.nickname || p.name) : ""; }, club: s.club_name, rival: m.rival, home: m.venue !== "Visitante", events: eventsOf(S.data, m.id), handle: HANDLE, tag: "#" + slug(s.club_name).replace(/-/g, "") }));
+      break;
+    }
+    case "card-fmt": showCard(el.dataset.v); break;
+    case "install": doInstall(); break;
+    case "install-dismiss": lsSet("cantera_install_snooze", String(Date.now() + 14 * 864e5)); updateInstallUI(); break;
+    case "ideal-card": {
+      const ctx = S.idealCtx; if (!ctx) break;
+      const st = new Map(statsFor(ctx.range, ctx.cat).map((x) => [x.p.id, x]));
+      const bySlot = [...document.querySelectorAll("#ideal-slots select")].map((sel) => sel.value ? { player_id: sel.value, rating: st.get(sel.value)?.avg != null ? Math.round(st.get(sel.value).avg * 10) / 10 : null, goals: st.get(sel.value)?.goals || 0 } : null);
+      if (!bySlot.some(Boolean)) { toast("Elige al menos un jugador", true); break; }
+      const card = await idealCard(S.data, { formation: ctx.formation, bySlot, kicker: ctx.cat || "Toda la cantera", title: "Once ideal", label: ctx.range.label, note: `Nota media del periodo · elegido por ${HANDLE}` });
+      downloadCanvas(card, `once-ideal-${slug(ctx.range.label)}.png`);
+      break;
+    }
     case "card-lineup": {
       const m = match(id);
       downloadCanvas(await lineupCard(m, S.data), `${m.match_date}-once-${slug(m.rival)}.png`);
@@ -942,6 +1293,10 @@ document.addEventListener("input", (e) => {
   }
 });
 document.addEventListener("change", async (e) => {
+  if (e.target.classList.contains("period-sel")) {
+    const c = e.target.closest("form").querySelector(".custom"); if (c) c.hidden = e.target.value !== "custom";
+    return;
+  }
   if (e.target.id === "formation-sel") {
     const m = { ...match(e.target.dataset.id), formation: e.target.value };
     await saveLineup(m, lineupRows(m.id).map((r) => ({ ...r, slot: null })), `Sistema ${m.formation}`);
@@ -1062,6 +1417,45 @@ document.addEventListener("submit", async (e) => {
         if (ok) { S.sedit = false; render(); }
       }
     }
+    if (f.id === "cx-rank") {
+      const stat = fd.get("stat"), cat = fd.get("cat"), n = Number(fd.get("n")) || 5;
+      const range = periodRange(fd.get("period"), cat, fd.get("from"), fd.get("to"));
+      const val = (x) => stat === "ga" ? x.goals + x.assists : x[stat];
+      const minPj = range.season ? 2 : 1;
+      const list = statsFor(range, cat).filter((x) => stat === "avg" ? x.avg != null && x.rn >= minPj : val(x) > 0)
+        .sort((a, b) => (val(b) ?? 0) - (val(a) ?? 0) || b.pj - a.pj).slice(0, n);
+      const sub = (x) => stat === "avg" ? `${x.rn} partido${x.rn === 1 ? "" : "s"} puntuado${x.rn === 1 ? "" : "s"}`
+        : stat === "ga" ? `${x.goals} goles · ${x.assists} asist.` : [`${x.pj} PJ`, cat ? null : x.p.category].filter(Boolean).join(" · ");
+      const meta = STAT_OPTS.find((o) => o[0] === stat);
+      const card = await rankingCard(S.data, { kicker: cat || "Toda la cantera", title: meta[2], label: range.label,
+        rows: list.map((x) => ({ p: x.p, value: stat === "avg" ? fmtRating(x.avg) : val(x), sub: sub(x) })) });
+      downloadCanvas(card, `ranking-${stat}-${slug(range.label)}.png`);
+    }
+    if (f.id === "cx-ideal") proposeIdeal(f);
+    if (f.id === "cx-cmp") {
+      const a = player(fd.get("a")), b = player(fd.get("b"));
+      if (!a || !b || a.id === b.id) toast("Elige dos jugadores distintos", true);
+      else {
+        const range = periodRange(fd.get("period"), null, fd.get("from"), fd.get("to"));
+        const all = new Map(statsFor(range, null).map((x) => [x.p.id, x]));
+        const A = all.get(a.id), B = all.get(b.id);
+        const rows = [["Partidos", "pj"], ["Minutos", "minutes"], ["Goles", "goals"], ["Asistencias", "assists"], ["Nota media", "avg"], ["MVP", "mvps"]]
+          .map(([label, k]) => k === "avg" ? { label, a: A.avg ?? 0, b: B.avg ?? 0, fa: fmtRating(A.avg), fb: fmtRating(B.avg) } : { label, a: A[k] || 0, b: B[k] || 0 });
+        if (range.season) rows.push({ label: "Tarjetas", a: A.cards || 0, b: B.cards || 0, lowerIsBetter: true });
+        downloadCanvas(await compareCard(S.data, a, b, rows, range.label), `cara-a-cara-${slug(shortNameOf(a.id))}-${slug(shortNameOf(b.id))}.png`);
+      }
+    }
+    if (f.id === "eventform") {
+      const m = match(f.dataset.mid), type = f.dataset.type;
+      const ev = { match_id: m.id, type, minute: num(fd.get("minute")), player_id: fd.get("player_id") || null, player2_id: fd.get("player2_id") || null, body: (fd.get("body") || "").trim() || null };
+      if (type === "cambio" && (!ev.player_id || !ev.player2_id)) { toast("Elige quién sale y quién entra", true); }
+      else if (ev.player2_id && ev.player2_id === ev.player_id) { toast("El asistente no puede ser el goleador", true); }
+      else {
+        closeModal();
+        const msg = { gol: `¡Gol${ev.player_id ? " de " + shortNameOf(ev.player_id) : ""}!`, gol_rival: `Gol de ${m.rival}`, amarilla: `Amarilla a ${shortNameOf(ev.player_id)}`, roja: `Roja a ${shortNameOf(ev.player_id)}`, cambio: `Entra ${shortNameOf(ev.player2_id)}`, nota: "Comentario apuntado" }[type];
+        await run(async () => { await S.store.addEvent(ev); await applyEvent(m, ev, 1); }, msg);
+      }
+    }
     if (f.id === "rateform") {
       const mid = f.dataset.mid, pid = f.dataset.pid, m = { ...match(mid) };
       const rows = lineupRows(mid), r = rows.find((x) => x.player_id === pid);
@@ -1093,12 +1487,13 @@ document.addEventListener("submit", async (e) => {
 });
 
 $("#modal").addEventListener("click", (e) => { if (e.target.id === "modal") closeModal(); });
+$("#modal").addEventListener("close", () => { if (S.pendingRender) { S.pendingRender = false; const y = window.scrollY; render(); window.scrollTo(0, y); } });
 
 // ------------------------------------------------------------ router
 function render() {
   const h = location.hash.replace(/^#\/?/, "");
   const [route, id] = h.split("/");
-  const views = { "": viewHome, jugadores: viewPlayers, partidos: viewMatches, ajustes: viewSettings, usuarios: viewUsers, estadisticas: viewStats };
+  const views = { "": viewHome, jugadores: viewPlayers, partidos: viewMatches, ajustes: viewSettings, usuarios: viewUsers, estadisticas: viewStats, contenido: viewContent };
   let html;
   if (S.data.settings.private_mode && !S.me) html = viewGate();
   else if (route === "jugador") html = viewPlayer(id);
@@ -1129,6 +1524,13 @@ window.addEventListener("hashchange", () => {
     S.store.onRecovery(() => newPasswordModal());
     await Promise.race([afterAuth(true), timeout(12000, "Supabase no responde. Comprueba que SUPABASE_URL en js/config.js es correcta y que el proyecto no está pausado.")]);
     window.__canteraOk = true;
+    S.store.subscribe(() => softRefresh());
+    updateInstallUI();
+    setInterval(tickClocks, 10000);
+    setInterval(() => {
+      if (document.visibilityState !== "visible" || S.store.realtime) return;
+      if (S.data.matches.some((m) => isLive(m))) softRefresh();
+    }, 20000);
   } catch (e) {
     console.error(e);
     window.__canteraOk = true;

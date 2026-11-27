@@ -262,6 +262,46 @@ grant select, update on public.profiles to authenticated;
 grant execute on function public.my_role(), public.is_admin(), public.can_edit(), public.can_view() to anon, authenticated;
 grant execute on function public.admin_list_users(), public.admin_delete_user(uuid), public.update_my_name(text) to authenticated;
 
+
+-- ---------- Directo (solo añade campos y una tabla nueva) ----------
+alter table public.matches add column if not exists live_status text;
+alter table public.matches add column if not exists live_started_at timestamptz;
+alter table public.matches add column if not exists half_minutes int;
+
+create table if not exists public.match_events (
+  id uuid primary key default gen_random_uuid(),
+  match_id uuid not null references public.matches(id) on delete cascade,
+  minute int,
+  type text not null,
+  player_id uuid references public.players(id) on delete set null,
+  player2_id uuid references public.players(id) on delete set null,
+  body text,
+  created_at timestamptz not null default now()
+);
+create index if not exists idx_events_match on public.match_events(match_id);
+alter table public.match_events enable row level security;
+drop policy if exists "ver" on public.match_events;
+drop policy if exists "crear" on public.match_events;
+drop policy if exists "editar" on public.match_events;
+drop policy if exists "borrar" on public.match_events;
+create policy "ver" on public.match_events for select using (public.can_view());
+create policy "crear" on public.match_events for insert with check (public.can_edit());
+create policy "editar" on public.match_events for update using (public.can_edit()) with check (public.can_edit());
+create policy "borrar" on public.match_events for delete using (public.can_edit());
+grant select on public.match_events to anon, authenticated;
+grant insert, update, delete on public.match_events to authenticated;
+
+-- Tiempo real: avisar a la web cuando cambian partidos, alineaciones o eventos
+do $$
+declare t text;
+begin
+  foreach t in array array['matches','match_players','match_events'] loop
+    if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = t) then
+      execute format('alter publication supabase_realtime add table public.%I', t);
+    end if;
+  end loop;
+end $$;
+
 -- ---------- Fotos (Storage) ----------
 insert into storage.buckets (id, name, public)
 values ('photos', 'photos', true)

@@ -77,7 +77,9 @@ function supabaseStore(sb) {
         sb.from("match_players").select("*"),
         sb.from("scout_notes").select("*").order("note_date", { ascending: false }),
       ]);
+      const ev = await sb.from("match_events").select("*");
       return {
+        events: ev.error ? [] : ev.data || [],
         settings: { ...DEFAULT_SETTINGS, ...(must(s) || {}) },
         players: must(p) || [],
         matches: must(m) || [],
@@ -111,6 +113,29 @@ function supabaseStore(sb) {
     },
     async deleteMatch(id) {
       must(await sb.from("matches").delete().eq("id", id));
+    },
+    // ---- directo
+    async updateMatch(id, patch) {
+      must(await sb.from("matches").update(patch).eq("id", id));
+    },
+    async upsertLineupRow(match_id, player_id, patch) {
+      const upd = must(await sb.from("match_players").update(patch).eq("match_id", match_id).eq("player_id", player_id).select());
+      if (!upd || !upd.length) must(await sb.from("match_players").insert({ match_id, player_id, starter: false, goals: 0, assists: 0, yellow: 0, red: 0, ...patch }));
+    },
+    async addEvent(e) {
+      return must(await sb.from("match_events").insert(e).select().single());
+    },
+    async deleteEvent(id) {
+      must(await sb.from("match_events").delete().eq("id", id));
+    },
+    realtime: false,
+    subscribe(cb) {
+      try {
+        const ch = sb.channel("cantera-live");
+        for (const table of ["matches", "match_players", "match_events"])
+          ch.on("postgres_changes", { event: "*", schema: "public", table }, () => cb());
+        ch.subscribe((st) => { this.realtime = st === "SUBSCRIBED"; });
+      } catch (e) { console.warn("Realtime no disponible", e); }
     },
     async saveNote(n) {
       const row = { player_id: n.player_id, note_date: n.note_date, tag: n.tag || null, body: n.body };
@@ -254,6 +279,7 @@ function demoStore() {
     async loadAll() {
       const s = read();
       s.settings = { ...DEFAULT_SETTINGS, ...s.settings };
+      s.events = s.events || [];
       return structuredClone(s);
     },
     async savePlayer(p) {
@@ -281,15 +307,38 @@ function demoStore() {
       const s = read();
       const row = { ...pick(m, MATCH_FIELDS), id: m.id || uid() };
       const i = s.matches.findIndex((x) => x.id === row.id);
-      i >= 0 ? (s.matches[i] = row) : s.matches.push(row);
+      i >= 0 ? (s.matches[i] = { ...s.matches[i], ...row }) : s.matches.push(row);
       s.matchPlayers = s.matchPlayers.filter((a) => a.match_id !== row.id)
         .concat(lineup.map((l) => ({ ...pick(l, LINEUP_FIELDS), match_id: row.id })));
       write(s);
       return row;
     },
+    async updateMatch(id, patch) {
+      const s = read(); const m = s.matches.find((x) => x.id === id);
+      if (m) Object.assign(m, patch);
+      write(s);
+    },
+    async upsertLineupRow(match_id, player_id, patch) {
+      const s = read();
+      const r = s.matchPlayers.find((x) => x.match_id === match_id && x.player_id === player_id);
+      if (r) Object.assign(r, patch);
+      else s.matchPlayers.push({ match_id, player_id, starter: false, slot: null, minutes: null, goals: 0, assists: 0, yellow: 0, red: 0, rating: null, note: null, ...patch });
+      write(s);
+    },
+    async addEvent(e) {
+      const s = read(); s.events = s.events || [];
+      const row = { ...e, id: uid(), created_at: new Date().toISOString() };
+      s.events.push(row); write(s); return row;
+    },
+    async deleteEvent(id) {
+      const s = read(); s.events = (s.events || []).filter((e) => e.id !== id); write(s);
+    },
+    realtime: false,
+    subscribe(cb) { window.addEventListener("storage", (e) => { if (e.key === KEY) cb(); }); },
     async deleteMatch(id) {
       const s = read();
       s.matches = s.matches.filter((m) => m.id !== id);
+      s.events = (s.events || []).filter((e) => e.match_id !== id);
       s.matchPlayers = s.matchPlayers.filter((a) => a.match_id !== id);
       write(s);
     },

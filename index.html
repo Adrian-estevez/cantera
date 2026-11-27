@@ -2,11 +2,17 @@
 <html lang="es">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>La Cantera</title>
   <meta name="description" content="Fichas, partidos, notas e historial de los jugadores de la cantera. Por @futbolconadrix.">
   <meta name="theme-color" content="#0a3a8c">
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="La Cantera">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -24,6 +30,7 @@
       <a href="#/jugadores">Jugadores</a>
       <a href="#/partidos">Partidos</a>
       <a href="#/estadisticas">Estadísticas</a>
+      <a href="#/contenido" id="nav-content" hidden>Crear contenido</a>
       <a href="#/usuarios" id="nav-users" hidden>Usuarios</a>
       <a href="#/ajustes" id="nav-settings" hidden>Ajustes</a>
     </nav>
@@ -34,8 +41,15 @@
 
   <footer class="foot">
     <span>Contenido de <b id="foot-handle">@futbolconadrix</b></span>
+    <button class="link foot-install" data-act="install" id="foot-install" hidden>Instalar la app en el móvil</button>
     <span id="foot-season"></span>
   </footer>
+  <div class="install-bar" id="install-bar" hidden role="region" aria-label="Instalar la app">
+    <img src="/icons/icon-192.png" alt="" width="44" height="44">
+    <div class="ib-t"><b>Instala La Cantera</b><span id="ib-msg">Ábrela como una app, a pantalla completa.</span></div>
+    <button class="btn small accent" data-act="install" id="ib-btn">Instalar</button>
+    <button class="x" data-act="install-dismiss" aria-label="Ahora no">×</button>
+  </div>
 
   <dialog id="modal"><div id="modal-body"></div></dialog>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
@@ -63,6 +77,9 @@
         show("La web tarda demasiado en cargar.", "Puede que falte la carpeta js en GitHub, que haya un error en js/config.js o que la URL de Supabase no sea correcta.");
       }, 15000);
     })();
+  </script>
+  <script>
+    if ("serviceWorker" in navigator) window.addEventListener("load", () => navigator.serviceWorker.register("/sw.js").catch(() => {}));
   </script>
   <script type="module" src="js/app.js" onerror="window.__canteraFail('No se encuentra el archivo js/app.js.', 'Comprueba en GitHub que la carpeta js está subida y contiene app.js, config.js, store.js, share.js y utils.js.')"></script>
 </body>

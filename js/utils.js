@@ -110,3 +110,19 @@ export function playerStats(pid, data) {
     mvps: data.matches.filter((m) => m.mvp_id === pid).length,
   };
 }
+
+// Estadísticas de cada jugador en un rango de fechas (solo partidos jugados)
+export function periodStats(data, from, to, category) {
+  const ms = new Map(data.matches.filter((m) => result(m) !== "P" && (!from || m.match_date >= from) && (!to || m.match_date <= to) && (!category || m.category === category)).map((m) => [m.id, m]));
+  const by = new Map();
+  for (const a of data.matchPlayers) {
+    if (!ms.has(a.match_id)) continue;
+    const x = by.get(a.player_id) || { pj: 0, goals: 0, assists: 0, minutes: 0, rsum: 0, rn: 0, mvps: 0 };
+    x.pj++; x.goals += Number(a.goals) || 0; x.assists += Number(a.assists) || 0; x.minutes += Number(a.minutes) || 0;
+    if (a.rating != null && a.rating !== "") { x.rsum += Number(a.rating); x.rn++; }
+    by.set(a.player_id, x);
+  }
+  for (const m of ms.values()) if (m.mvp_id && by.has(m.mvp_id)) by.get(m.mvp_id).mvps++;
+  for (const x of by.values()) x.avg = x.rn ? x.rsum / x.rn : null;
+  return { stats: by, matches: [...ms.values()] };
+}

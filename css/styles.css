@@ -24,6 +24,7 @@ TYPE    Barlow Condensed para dorsales, marcadores y títulos; Barlow para el te
 :root[data-theme=light] { color-scheme: light; }
 :root[data-theme=dark] { color-scheme: dark; }
 * { box-sizing: border-box; min-width: 0; }
+[hidden] { display: none !important; }
 html { scroll-padding-top: 80px; }
 body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.55 "Barlow", system-ui, sans-serif; overflow-x: clip; min-height: 100vh; display: flex; flex-direction: column; }
 main { flex: 1; }
@@ -482,6 +483,82 @@ th.n .sortb { width: 100%; text-align: right; }
   .savebar { padding-bottom: 8px; }
   .savebar span { flex-basis: 100%; }
 }
+
+/* ---------- directo ---------- */
+.livebadge { display: inline-flex; align-items: center; gap: 6px; background: #d8261b; color: #fff; font: 700 13px var(--head); text-transform: uppercase; letter-spacing: .04em; padding: 3px 9px 3px 8px; border-radius: 6px; white-space: nowrap; }
+.livebadge i, .seg-live .dot, .res-L small::before { width: 8px; height: 8px; border-radius: 50%; background: #fff; display: inline-block; animation: pulse 1.4s infinite; }
+.livebadge.sm { font-size: 11px; padding: 2px 7px; }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .25; } }
+.clock { font: 700 20px var(--head); font-variant-numeric: tabular-nums; }
+.board-tag .livebadge { margin-right: 6px; }
+.seg-live .dot { background: #d8261b; margin-right: 6px; }
+.res-L { background: #d8261b; color: #fff; display: inline-flex; flex-direction: column; align-items: center; line-height: 1; padding: 4px 10px; }
+.res-L small { font: 600 11px "Barlow", sans-serif; display: inline-flex; align-items: center; gap: 4px; margin-top: 3px; }
+.res-L small::before { content: ""; width: 6px; height: 6px; }
+.live-ctl { border: 2px solid #d8261b; }
+.live-top { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; min-height: 30px; }
+.live-btns { display: flex; gap: 8px; flex-wrap: wrap; align-items: end; }
+.halfsel { display: grid; gap: 4px; font-size: 13px; font-weight: 600; color: var(--muted); }
+.halfsel input { width: 110px; }
+.live-acts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 14px; }
+.lact { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; min-height: 76px; padding: 10px 6px; border-radius: 14px; border: 1.5px solid var(--line); background: var(--soft); color: var(--ink); font: 600 15px "Barlow", sans-serif; cursor: pointer; }
+.lact svg { width: 28px; height: 28px; }
+.lact:hover { border-color: var(--club); }
+.lact:active { transform: scale(.97); }
+.lact-gol { background: var(--club); color: #fff; border-color: var(--club); }
+.live-acts.sheet { margin: 6px 0 4px; }
+.tl-live { list-style: none; padding: 0; margin: 0; }
+.ev { display: grid; grid-template-columns: 40px 26px minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 9px 0; border-bottom: 1px solid var(--line); }
+.ev:last-child { border-bottom: 0; }
+.ev-min { font: 700 17px var(--head); color: var(--muted); text-align: right; }
+.ev-ic svg { width: 22px; height: 22px; display: block; color: var(--muted); }
+.ev-tx { line-height: 1.35; }
+.ev-gol .ev-tx { font-size: 17px; }
+.ev-estado { background: var(--soft); border-radius: 8px; padding-inline: 4px; border-bottom-color: transparent; margin: 4px 0; }
+.tl-sc { display: inline-block; font: 700 14px var(--head); background: #111; color: var(--accent); padding: 1px 7px; border-radius: 5px; margin-left: 4px; }
+.ev-act { display: flex; gap: 6px; align-items: center; }
+.tk-b.sub { background: #15a34a; color: #fff; }
+.live-m { display: none; margin-bottom: 14px; }
+@media (max-width: 900px) { .live-m { display: block; } .live-d { display: none; } }
+@media (max-width: 600px) {
+  .live-acts { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .lact { min-height: 70px; font-size: 14px; }
+  .ev { grid-template-columns: 34px 22px minmax(0, 1fr) auto; }
+  .seg button { padding: 0 8px; }
+  .board-team { font-size: 15px; hyphens: auto; }
+  .board-score { font-size: 48px; padding: 4px 10px; }
+  .board-score.time { font-size: 36px; }
+}
+@media (prefers-reduced-motion: reduce) { .livebadge i, .seg-live .dot, .res-L small::before { animation: none; } }
+
+/* ---------- crear contenido ---------- */
+.cx-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; max-width: calc(1240px + 10vw); margin: 0 auto; align-items: start; }
+.cx-grid > * { margin: 0; }
+.cx-grid .panel + .panel { margin-top: 0; }
+.cx { gap: 12px; }
+.cx > .btn { justify-self: start; }
+.cx-h { display: flex; gap: 12px; align-items: center; }
+.cx-h h2 { margin: 0; }
+.cx-h p { margin: 2px 0 0; }
+.cx-ic { width: 40px; height: 40px; border-radius: 12px; background: var(--accent); color: #111; display: grid; place-items: center; font: 700 22px var(--head); flex: none; }
+.ideal-list { display: grid; gap: 6px; margin: 6px 0 10px; }
+.ideal-row { display: grid !important; grid-template-columns: 52px minmax(0, 1fr); align-items: center; gap: 8px !important; }
+.ideal-row select { min-height: 40px; padding: 6px 8px; font-size: 15px; }
+.seg.fmt { margin-bottom: 12px; }
+.preview.story { max-height: 64vh; }
+@media (max-width: 1000px) { .cx-grid { grid-template-columns: minmax(0, 1fr); } }
+
+/* ---------- app instalada ---------- */
+.top { padding-top: max(10px, env(safe-area-inset-top)); padding-left: max(5vw, 16px, env(safe-area-inset-left)); padding-right: max(5vw, 16px, env(safe-area-inset-right)); }
+.foot { padding-bottom: max(20px, env(safe-area-inset-bottom)); align-items: center; }
+.foot-install { color: #fff; }
+.install-bar { position: fixed; left: 12px; right: 12px; bottom: max(12px, env(safe-area-inset-bottom)); z-index: 40; display: flex; align-items: center; gap: 12px; padding: 10px 10px 10px 12px; border-radius: 16px; background: #111; color: #fff; box-shadow: 0 12px 40px rgba(0,0,0,.4); max-width: 560px; margin: 0 auto; }
+.install-bar img { border-radius: 10px; flex: none; }
+.ib-t { flex: 1; display: flex; flex-direction: column; line-height: 1.25; min-width: 0; }
+.ib-t span { font-size: 13px; opacity: .8; }
+.install-bar .x { background: rgba(255,255,255,.12); color: #fff; flex: none; }
+.steps { padding-left: 22px; display: grid; gap: 8px; font-size: 17px; }
+.kbd { display: inline-block; padding: 0 7px; border-radius: 6px; background: var(--soft); font-weight: 700; }
 
 /* ---------- responsive ---------- */
 @media (max-width: 1000px) {

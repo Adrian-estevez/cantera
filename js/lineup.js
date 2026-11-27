@@ -34,7 +34,7 @@ const DETAIL = [
   [/extremo der|banda der|medio der/, ["ED", "MD"]], [/extremo izq|banda izq|medio izq/, ["EI", "MI"]],
   [/delantero|punta|ariete|9/, ["DC"]], [/portero/, ["POR"]],
 ];
-function detailLabels(p) {
+export function detailLabels(p) {
   const d = String(p?.detail_position || "").toLowerCase();
   if (!d) return p?.position === "Portero" ? ["POR"] : [];
   const hit = DETAIL.find(([re]) => re.test(d));
@@ -92,6 +92,7 @@ function token(r, p, opts) {
   if (r && r.assists > 0) badges.push(`<span class="tk-b asis" title="${r.assists} asistencia${r.assists > 1 ? "s" : ""}">A${r.assists > 1 ? r.assists : ""}</span>`);
   if (r && r.yellow > 0) badges.push(`<span class="tk-c y" title="Amarilla"></span>`);
   if (r && r.red > 0) badges.push(`<span class="tk-c r" title="Roja"></span>`);
+  if (r && r._in != null) badges.push(`<span class="tk-b sub" title="Entró en el ${r._in}'">${r._in}'</span>`);
   const photo = opts.photo(p);
   const rated = r && r.rating != null && r.rating !== "";
   return `<span class="tk-shirt">${photo ? `<img src="${esc(photo)}" alt="">` : `<b>${esc(p.dorsal ?? initials(p.name))}</b>`}
@@ -104,7 +105,7 @@ function token(r, p, opts) {
 // HTML del campo. opts: { editable, mode, mvp, photo(p) }
 export function pitchHTML(arr, playerById, opts) {
   const { slots, bySlot, bench } = arr;
-  const action = opts.editable ? (opts.mode === "rate" ? "rate" : "pick") : null;
+  const action = opts.editable ? (opts.mode === "rate" ? "rate" : opts.mode === "live" ? "live" : "pick") : null;
   const pitch = slots.map((s, i) => {
     const r = bySlot[i];
     const p = r && playerById(r.player_id);
@@ -117,6 +118,7 @@ export function pitchHTML(arr, playerById, opts) {
     const inner = token(r, p, opts);
     if (action === "pick") return `<button class="tk" style="${style}" data-act="slot-pick" data-slot="${i}" aria-label="Cambiar ${esc(p.name)}">${inner}</button>`;
     if (action === "rate") return `<button class="tk" style="${style}" data-act="rate" data-pid="${esc(p.id)}" aria-label="Puntuar a ${esc(p.name)}">${inner}</button>`;
+    if (action === "live") return `<button class="tk" style="${style}" data-act="live-player" data-pid="${esc(p.id)}" aria-label="Acciones para ${esc(p.name)}">${inner}</button>`;
     return `<a class="tk" style="${style}" href="#/jugador/${esc(p.id)}">${inner}</a>`;
   }).join("");
 
@@ -130,6 +132,7 @@ export function pitchHTML(arr, playerById, opts) {
       ${rated ? `<span class="rt ${ratingClass(r.rating)}">${fmtRating(r.rating)}</span>` : ""}`;
     if (action === "pick") return `<span class="bn">${label}<button class="x" data-act="bench-remove" data-pid="${esc(p.id)}" aria-label="Quitar a ${esc(p.name)} de la convocatoria">×</button></span>`;
     if (action === "rate") return `<button class="bn" data-act="rate" data-pid="${esc(p.id)}">${label}</button>`;
+    if (action === "live") return `<button class="bn" data-act="live-player" data-pid="${esc(p.id)}" data-bench="1">${label}</button>`;
     return `<a class="bn" href="#/jugador/${esc(p.id)}">${label}</a>`;
   }).join("");
 
